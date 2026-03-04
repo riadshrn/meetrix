@@ -46,6 +46,13 @@ div[data-testid="column"] { padding: 0 !important; }
   font-size: 0.78rem; font-weight: 700; color: white; flex-shrink: 0;
 }
 
+/* Réduction espacement titre/meta dans les tâches */
+div[data-testid="column"] div[data-testid="stMarkdownContainer"] p {
+    margin-bottom: 0 !important;
+    margin-top: 0 !important;
+    line-height: 1.4;
+}
+
 /* Bouton Google Tasks */
 div[data-testid="stButton"] button[kind="secondary"].gtask {
   border-color: #1a73e8 !important; color: #1a73e8 !important; font-weight: 600;
