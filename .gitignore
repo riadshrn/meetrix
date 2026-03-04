@@ -15,6 +15,8 @@ env/
 .env.*.local
 *.key
 *.pem
+client_secret.json
+token.json
 
 # Logs
 *.log
@@ -58,3 +60,6 @@ data/
 temp/
 *.wav
 *.mp3
+
+# Exports générés
+exports/

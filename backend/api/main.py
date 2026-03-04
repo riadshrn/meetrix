@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.models.meeting import (
-    CalendarEventRequest, MeetingReport, MomentType,
+    CalendarEventRequest, CreateTaskRequest, MeetingReport, MomentType,
     QARequest, QAResponse, StartMeetingRequest,
     StartMeetingResponse, StopMeetingResponse, TranscriptSegment,
 )
-from backend.services.calendar_service import get_calendar_service
+from backend.services.calendar_service import get_calendar_service, get_tasks_service
 from backend.services.export_service import export_report
 from backend.services.llm_service import get_llm_service
 from backend.services.meeting_manager import get_meeting_manager
@@ -87,6 +89,31 @@ app = FastAPI(title="Meeting AI Assistant", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _last_report: Optional[MeetingReport] = None
+_reports_history: List[MeetingReport] = []
+
+HISTORY_FILE = Path("exports/reports_history.json")
+
+def _load_history():
+    global _reports_history
+    if HISTORY_FILE.exists():
+        try:
+            data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+            _reports_history = [MeetingReport(**r) for r in data]
+            logger.info(f"Historique chargé: {len(_reports_history)} compte(s)-rendu(s)")
+        except Exception as e:
+            logger.warning(f"Impossible de charger l'historique: {e}")
+
+def _save_history():
+    try:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        HISTORY_FILE.write_text(
+            json.dumps([r.model_dump(mode="json") for r in _reports_history], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning(f"Impossible de sauvegarder l'historique: {e}")
+
+_load_history()
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -139,7 +166,7 @@ def get_state():
 
 @app.post("/report")
 async def generate_report():
-    global _last_report
+    global _last_report, _reports_history
     manager = get_meeting_manager()
     if not manager.state:
         raise HTTPException(404, "Aucune réunion disponible.")
@@ -147,6 +174,8 @@ async def generate_report():
     llm = get_llm_service()
     report = await llm.generate_full_report(manager.state)
     _last_report = report
+    _reports_history.append(report)
+    _save_history()
     paths = export_report(report)
     return {"report": report.model_dump(), "exports": paths}
 
@@ -166,6 +195,37 @@ def get_last_report():
     if not _last_report:
         raise HTTPException(404, "Aucun rapport disponible.")
     return _last_report.model_dump()
+
+
+@app.get("/reports")
+def list_reports():
+    return [r.model_dump() for r in reversed(_reports_history)]
+
+
+@app.delete("/reports/{meeting_id}")
+def delete_report(meeting_id: str):
+    global _reports_history, _last_report
+    original_len = len(_reports_history)
+    _reports_history = [r for r in _reports_history if r.meeting_id != meeting_id]
+    if len(_reports_history) == original_len:
+        raise HTTPException(404, "Compte-rendu introuvable.")
+    if _last_report and _last_report.meeting_id == meeting_id:
+        _last_report = _reports_history[-1] if _reports_history else None
+    _save_history()
+    return {"deleted": meeting_id}
+
+
+@app.post("/tasks/create")
+def create_google_task(req: CreateTaskRequest):
+    try:
+        return get_tasks_service().create_task(
+            task=req.task,
+            assignee=req.assignee,
+            due_date=req.due_date,
+            notes=req.notes or (f"Réunion : {req.meeting_title}" if req.meeting_title else None),
+        )
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.post("/calendar")

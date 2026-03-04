@@ -76,7 +76,7 @@ def generate_markdown(report: MeetingReport) -> str:
 def save_markdown(report: MeetingReport) -> Path:
     """Sauvegarde le Markdown et retourne le chemin."""
     md_content = generate_markdown(report)
-    filename = f"rapport_{report.meeting_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    filename = f"rapport_{report.meeting_id[:8]}.md"
     filepath = EXPORT_DIR / filename
     filepath.write_text(md_content, encoding="utf-8")
     return filepath
@@ -104,7 +104,7 @@ def generate_pdf(report: MeetingReport) -> Optional[Path]:
             TableStyle,
         )
 
-        filename = f"rapport_{report.meeting_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filename = f"rapport_{report.meeting_id[:8]}.pdf"
         filepath = EXPORT_DIR / filename
 
         doc = SimpleDocTemplate(str(filepath), pagesize=A4,
