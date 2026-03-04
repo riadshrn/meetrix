@@ -8,6 +8,7 @@ import uuid
 
 from dotenv import load_dotenv
 load_dotenv()
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from backend.models.meeting import (
     QARequest, QAResponse, StartMeetingRequest,
     StartMeetingResponse, StopMeetingResponse, TranscriptSegment,
 )
+from backend.services.asr_service import get_asr_service
 from backend.services.calendar_service import get_calendar_service, get_tasks_service
 from backend.services.export_service import export_report
 from backend.services.llm_service import get_llm_service
@@ -146,8 +148,7 @@ async def stop_meeting():
     manager = get_meeting_manager()
     if not manager.is_recording():
         raise HTTPException(409, "Aucune réunion en cours.")
-    # Injecter tous les segments restants avant d'arrêter
-    _inject_demo_segments()
+    get_asr_service().stop()  # arrêt explicite de l'ASR
     state = await manager.stop_meeting()
     duration = (state.ended_at - state.started_at).total_seconds()
     return StopMeetingResponse(
@@ -162,8 +163,6 @@ def get_state():
     manager = get_meeting_manager()
     if not manager.state:
         return {"state": None}
-    # Injection automatique des segments de démo à chaque appel
-    _inject_demo_segments()
     return {"state": manager.get_state_dict()}
 
 
@@ -191,6 +190,16 @@ async def question_answer(req: QARequest):
     transcript = manager.state.full_transcript()
     answer = await get_llm_service().answer_question(req.question, transcript)
     return QAResponse(question=req.question, answer=answer, meeting_id=req.meeting_id)
+
+
+@app.post("/reset")
+def reset_meeting():
+    global _last_report
+    manager = get_meeting_manager()
+    manager.state = None
+    get_asr_service().stop()
+    _last_report = None
+    return {"message": "Réunion réinitialisée"}
 
 
 @app.get("/report/last")
@@ -245,11 +254,42 @@ def create_calendar_event(req: CalendarEventRequest):
 async def websocket_audio(ws: WebSocket):
     await ws.accept()
     await ws.send_text('{"type":"status","data":{"message":"connecté"}}')
+
+    manager = get_meeting_manager()
+    asr = get_asr_service()
+
+    async def on_segment(seg: TranscriptSegment):
+        if manager.state:
+            manager.state.segments.append(seg)
+            get_stats_service().full_update(manager.state)
+        try:
+            await ws.send_text(json.dumps({"type": "final_segment", "data": seg.model_dump()}))
+        except Exception:
+            pass
+
+    async def on_partial(text: str, start: float):
+        try:
+            await ws.send_text(json.dumps({"type": "partial_transcript", "data": {"text": text, "start": start}}))
+        except Exception:
+            pass
+
+    asr.on_segment = on_segment
+    asr.on_partial = on_partial
+    if not asr._running:
+        asr.start()
+        logger.info("WebSocket audio connecté — ASR démarré")
+    else:
+        logger.info("WebSocket audio reconnecté — ASR repris (timestamps préservés)")
+
     try:
         while True:
-            await ws.receive()
-    except WebSocketDisconnect:
-        pass
+            msg = await ws.receive()
+            if "bytes" in msg and msg["bytes"]:
+                logger.debug(f"Chunk reçu: {len(msg['bytes'])} bytes, recording={manager.is_recording()}")
+                await asr.receive_chunk(msg["bytes"])
+    except (WebSocketDisconnect, RuntimeError):
+        logger.info("WebSocket audio déconnecté — ASR maintenu actif")
+        # Ne pas arrêter l'ASR : le frontend va se reconnecter
 
 
 # ---------------------------------------------------------------------------

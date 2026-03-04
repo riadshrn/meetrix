@@ -244,11 +244,28 @@ Ces deux intégrations partagent les mêmes credentials OAuth. Les étapes suiva
 
 ### Windows — VB-Audio Virtual Cable
 
+**1. Installation et configuration de la capture**
+
 ```
 1. Télécharger : https://vb-audio.com/Cable/
 2. Installer et redémarrer
-3. Dans Google Meet → Paramètres → Micro → "CABLE Output (VB-Audio)"
-4. Dans Meeting AI → le backend reçoit l'audio via "CABLE Input"
+3. Dans Google Meet → Paramètres → Sortie audio → "CABLE Input (VB-Audio Virtual Cable)"
+   (Meet envoie ainsi son audio dans le câble virtuel)
+4. Dans Meetrix → sélectionner votre micro physique dans "🎙️ Mon Micro"
+   (CABLE Output est détecté automatiquement comme source Meet)
+```
+
+**2. Monitoring — Pour entendre la réunion dans vos écouteurs**
+
+Par défaut, router la sortie audio vers CABLE Input coupe le son dans vos écouteurs.
+Pour continuer à entendre la réunion tout en capturant l'audio :
+
+```
+1. Ouvrir : Paramètres de son → Panneau de configuration Son → onglet Enregistrement
+2. Clic droit sur "CABLE Output" → Propriétés → onglet Écouter
+3. Cocher "Écouter ce périphérique"
+4. Dans "Lire sur ce périphérique", sélectionner votre casque ou vos enceintes
+5. Valider → vous entendez à nouveau la réunion, et Meetrix capture toujours l'audio
 ```
 
 ### macOS — BlackHole
