@@ -8,6 +8,12 @@ from pathlib import Path
 import requests
 import streamlit as st
 
+_LOGO      = str(Path(__file__).parent.parent / "assets" / "logo.png")
+_LOGO_ICON = str(Path(__file__).parent.parent / "assets" / "logo2.png")
+st.set_page_config(page_title="Meetrix", page_icon=_LOGO_ICON, layout="wide")
+st.logo(_LOGO, icon_image=_LOGO_ICON, size="large")
+
+
 BACKEND = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 # ── CSS minimal (dark-mode safe) ─────────────────────────────────────────────
@@ -314,15 +320,6 @@ title        = report.get("title", "Réunion")
 duration     = report.get("duration_minutes", 0)
 speakers     = api_speakers()
 
-# ── Score ────────────────────────────────────────────────────────────────────
-assigned = sum(1 for i in action_items if i.get("assignee") not in ("Non assigné", "", None))
-score = min(
-    min(len(decisions)*20, 40)
-    + (20 if assigned == len(action_items) and action_items else (10 if action_items else 0))
-    + (20 if len(participants) >= 2 else 10)
-    + min(len(discussed)*5, 20), 100)
-score_label = "🟢 Productive" if score >= 70 else ("🟡 Correcte" if score >= 40 else "🔴 Incomplète")
-
 # ── HERO ─────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="hero-card">
@@ -333,7 +330,6 @@ st.markdown(f"""
     <span class="pill">👥 {len(participants)} participant{"s" if len(participants)!=1 else ""}</span>
     <span class="pill">✅ {len(decisions)} décision{"s" if len(decisions)!=1 else ""}</span>
     <span class="pill">📌 {len(action_items)} next step{"s" if len(action_items)!=1 else ""}</span>
-    <span class="pill">{score_label} · {score}%</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -519,22 +515,22 @@ ec1, ec2, ec3 = st.columns(3)
 with ec1:
     md_path = exports.get("markdown")
     if md_path and Path(md_path).exists():
-        st.download_button("Télécharger Markdown",
+        st.download_button("Télécharger en Markdown",
                            data=Path(md_path).read_text(encoding="utf-8"),
                            file_name=Path(md_path).name, mime="text/markdown",
                            use_container_width=True)
     else:
-        st.button("Markdown", disabled=True, use_container_width=True)
+        st.button("Télécharger en Markdown", disabled=True, use_container_width=True)
 
 with ec2:
     pdf_path = exports.get("pdf")
     if pdf_path and Path(pdf_path).exists():
-        st.download_button("Télécharger PDF",
+        st.download_button("Télécharger en PDF",
                            data=Path(pdf_path).read_bytes(),
                            file_name=Path(pdf_path).name, mime="application/pdf",
                            use_container_width=True)
     else:
-        st.button("PDF", disabled=True, use_container_width=True)
+        st.button("Télécharger en PDF", disabled=True, use_container_width=True)
 
 with ec3:
     st.link_button("Envoyer par mail", url=mailto_link(report), use_container_width=True)

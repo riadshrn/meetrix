@@ -1,4 +1,4 @@
-# 🎙️ Meeting AI Assistant
+# Meetrix
 
 > Transcription temps réel • Analyse IA Mistral • Compte-rendu automatique • Google Calendar
 
@@ -80,8 +80,8 @@ meeting-ai-assistant/
 │       ├── export_service.py    # MD + PDF
 │       └── calendar_service.py  # Google Calendar
 ├── frontend/
-│   ├── app.py                   # Streamlit home
-│   ├── components/              # Composants réutilisables
+│   ├── Accueil.py               # Streamlit home
+│   ├── assets/                  # Logos et ressources statiques
 │   └── pages/
 │       ├── 1_transcription.py   # Live transcription + audio
 │       ├── 2_stats.py           # Graphiques
@@ -172,7 +172,7 @@ export MISTRAL_API_KEY=sk-...
 uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 2 : Frontend
-streamlit run frontend/app.py --server.port 8501
+streamlit run frontend/Accueil.py --server.port 8501
 ```
 
 **Accès :**

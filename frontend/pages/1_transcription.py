@@ -2,9 +2,17 @@ import os
 import queue
 import time
 import threading
+from pathlib import Path
+
 import requests
 import numpy as np
 import streamlit as st
+
+_LOGO      = str(Path(__file__).parent.parent / "assets" / "logo.png")
+_LOGO_ICON = str(Path(__file__).parent.parent / "assets" / "logo2.png")
+st.set_page_config(page_title="Meetrix", page_icon=_LOGO_ICON, layout="wide")
+st.logo(_LOGO, icon_image=_LOGO_ICON, size="large")
+
 
 BACKEND = os.environ.get("BACKEND_URL", "http://localhost:8000")
 WS_URL  = BACKEND.replace("http://", "ws://").replace("https://", "wss://") + "/ws/audio"
