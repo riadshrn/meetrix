@@ -143,6 +143,12 @@ def start_meeting(req: StartMeetingRequest):
     )
 
 
+@app.post("/flush")
+async def flush_asr():
+    await get_asr_service().flush_remaining()
+    return {"ok": True}
+
+
 @app.post("/stop", response_model=StopMeetingResponse)
 async def stop_meeting():
     manager = get_meeting_manager()
