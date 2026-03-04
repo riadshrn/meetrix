@@ -1,19 +1,5 @@
-"""
-Backend FastAPI — Meeting AI Assistant
-Routes:
-  POST /start          Démarre l'enregistrement
-  POST /stop           Arrête et finalise
-  POST /report         Génère le rapport LLM
-  POST /qa             Q&A live sur la transcription
-  GET  /state          État courant de la réunion
-  POST /calendar       Crée l'événement Google Calendar
-  WS   /ws/audio       WebSocket flux audio
-"""
 from __future__ import annotations
 
-import asyncio
-import base64
-import json
 import logging
 import os
 import time
@@ -26,76 +12,98 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.models.meeting import (
-    ActionItem,
-    CalendarEventRequest,
-    MeetingReport,
-    QARequest,
-    QAResponse,
-    StartMeetingRequest,
-    StartMeetingResponse,
-    StopMeetingResponse,
-    WSEvent,
-    WSEventType,
+    CalendarEventRequest, MeetingReport, MomentType,
+    QARequest, QAResponse, StartMeetingRequest,
+    StartMeetingResponse, StopMeetingResponse, TranscriptSegment,
 )
 from backend.services.calendar_service import get_calendar_service
 from backend.services.export_service import export_report
 from backend.services.llm_service import get_llm_service
 from backend.services.meeting_manager import get_meeting_manager
+from backend.services.stats_service import get_stats_service
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Simulation data
+# ---------------------------------------------------------------------------
+DEMO_SEGMENTS = [
+    ("Intervenant 1", "Bonjour à tous, commençons la réunion du jour.", None),
+    ("Intervenant 2", "J'ai préparé les slides sur le projet Alpha pour ce trimestre.", None),
+    ("Intervenant 1", "Décision : on valide le budget de 50 000 euros pour le Q2.", MomentType.DECISION),
+    ("Intervenant 3", "Pierre doit envoyer le rapport d'ici vendredi prochain.", MomentType.ACTION),
+    ("Intervenant 2", "Est-ce qu'on a bien identifié tous les risques techniques ?", MomentType.QUESTION),
+    ("Intervenant 1", "Il y a un risque critique sur l'intégration de l'API externe.", MomentType.RISK),
+    ("Intervenant 3", "Je prends en charge la migration de la base de données.", MomentType.ACTION),
+    ("Intervenant 2", "On se retrouve la semaine prochaine pour le point d'avancement.", None),
+    ("Intervenant 1", "Décision finale : lancement en mode agile, sprints de 2 semaines.", MomentType.DECISION),
+    ("Intervenant 3", "Marie doit contacter les parties prenantes avant jeudi.", MomentType.ACTION),
+]
+
+def _inject_demo_segments():
+    """
+    Appelé à chaque GET /state pendant l'enregistrement.
+    Injecte un nouveau segment toutes les 3 secondes (basé sur le temps réel écoulé).
+    """
+    manager = get_meeting_manager()
+    if not manager.state or not manager.state.is_recording:
+        return
+
+    state = manager.state
+    elapsed = (datetime.utcnow() - state.started_at).total_seconds()
+    # Combien de segments on devrait avoir à ce stade (1 toutes les 3s)
+    expected = min(int(elapsed / 3), len(DEMO_SEGMENTS))
+    current = len([s for s in state.segments if not s.is_partial])
+
+    if expected > current:
+        for i in range(current, expected):
+            speaker, text, moment_type = DEMO_SEGMENTS[i]
+            seg = TranscriptSegment(
+                id=str(uuid.uuid4()),
+                start=float(i * 5),
+                end=float(i * 5 + 4),
+                speaker=speaker,
+                text=text,
+                confidence=0.95,
+                is_partial=False,
+                moment_type=moment_type,
+            )
+            state.segments.append(seg)
+            logger.info(f"[DEMO] +segment {i+1}/{len(DEMO_SEGMENTS)}: {speaker}: {text[:40]}")
+
+        get_stats_service().full_update(state)
 
 # ---------------------------------------------------------------------------
-# App lifecycle
+# App
 # ---------------------------------------------------------------------------
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Meeting AI Assistant backend démarré")
+    logger.info("🚀 Meeting AI Assistant démarré")
     yield
-    # Cleanup
-    llm = get_llm_service()
-    await llm.close()
-    logger.info("Backend arrêté proprement")
+    await get_llm_service().close()
 
+app = FastAPI(title="Meeting AI Assistant", version="1.0.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app = FastAPI(
-    title="Meeting AI Assistant API",
-    description="Backend temps réel pour transcription, stats et analyse de réunions",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Cache du rapport le plus récent (en mémoire)
 _last_report: Optional[MeetingReport] = None
 
-
 # ---------------------------------------------------------------------------
-# REST endpoints
+# Routes
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
-async def health():
+def health():
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
 
 @app.post("/start", response_model=StartMeetingResponse)
-async def start_meeting(req: StartMeetingRequest):
+def start_meeting(req: StartMeetingRequest):
     manager = get_meeting_manager()
     if manager.is_recording():
-        raise HTTPException(status_code=409, detail="Une réunion est déjà en cours.")
+        raise HTTPException(409, "Une réunion est déjà en cours.")
     state = manager.start_meeting(title=req.title, participants=req.participants)
+    logger.info(f"Réunion démarrée: {state.meeting_id}")
     return StartMeetingResponse(
         meeting_id=state.meeting_id,
         message=f"Réunion '{req.title}' démarrée",
@@ -107,7 +115,9 @@ async def start_meeting(req: StartMeetingRequest):
 async def stop_meeting():
     manager = get_meeting_manager()
     if not manager.is_recording():
-        raise HTTPException(status_code=409, detail="Aucune réunion en cours.")
+        raise HTTPException(409, "Aucune réunion en cours.")
+    # Injecter tous les segments restants avant d'arrêter
+    _inject_demo_segments()
     state = await manager.stop_meeting()
     duration = (state.ended_at - state.started_at).total_seconds()
     return StopMeetingResponse(
@@ -117,157 +127,96 @@ async def stop_meeting():
     )
 
 
+@app.get("/state")
+def get_state():
+    manager = get_meeting_manager()
+    if not manager.state:
+        return {"state": None}
+    # Injection automatique des segments de démo à chaque appel
+    _inject_demo_segments()
+    return {"state": manager.get_state_dict()}
+
+
 @app.post("/report")
 async def generate_report():
     global _last_report
     manager = get_meeting_manager()
     if not manager.state:
-        raise HTTPException(status_code=404, detail="Aucune réunion disponible.")
-    
+        raise HTTPException(404, "Aucune réunion disponible.")
+    _inject_demo_segments()
     llm = get_llm_service()
     report = await llm.generate_full_report(manager.state)
     _last_report = report
-
-    # Export
     paths = export_report(report)
-
-    return {
-        "report": report.model_dump(),
-        "exports": paths,
-    }
+    return {"report": report.model_dump(), "exports": paths}
 
 
 @app.post("/qa", response_model=QAResponse)
 async def question_answer(req: QARequest):
     manager = get_meeting_manager()
     if not manager.state:
-        raise HTTPException(status_code=404, detail="Aucune réunion disponible.")
-    
+        raise HTTPException(404, "Aucune réunion disponible.")
     transcript = manager.state.full_transcript()
-    llm = get_llm_service()
-    answer = await llm.answer_question(req.question, transcript)
-    
-    return QAResponse(
-        question=req.question,
-        answer=answer,
-        meeting_id=req.meeting_id,
-    )
-
-
-@app.get("/state")
-async def get_state():
-    manager = get_meeting_manager()
-    if not manager.state:
-        return {"state": None}
-    return {"state": manager.get_state_dict()}
-
-
-@app.post("/calendar")
-async def create_calendar_event(req: CalendarEventRequest):
-    global _last_report
-    if not _last_report:
-        raise HTTPException(status_code=404, detail="Aucun rapport généré. Appelez /report d'abord.")
-    
-    cal = get_calendar_service()
-    try:
-        result = cal.create_meeting_event(req, _last_report)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    answer = await get_llm_service().answer_question(req.question, transcript)
+    return QAResponse(question=req.question, answer=answer, meeting_id=req.meeting_id)
 
 
 @app.get("/report/last")
-async def get_last_report():
+def get_last_report():
     if not _last_report:
-        raise HTTPException(status_code=404, detail="Aucun rapport disponible.")
+        raise HTTPException(404, "Aucun rapport disponible.")
     return _last_report.model_dump()
 
 
-# ---------------------------------------------------------------------------
-# WebSocket /ws/audio
-# ---------------------------------------------------------------------------
+@app.post("/calendar")
+def create_calendar_event(req: CalendarEventRequest):
+    if not _last_report:
+        raise HTTPException(404, "Aucun rapport. Appelez /report d'abord.")
+    try:
+        return get_calendar_service().create_meeting_event(req, _last_report)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 
 @app.websocket("/ws/audio")
 async def websocket_audio(ws: WebSocket):
-    """
-    WebSocket pour le streaming audio.
-    
-    Protocole entrée (client → serveur) :
-      - bytes bruts : chunk audio PCM int16 16kHz mono
-      - JSON string : {"type": "command", "cmd": "ping"|"status"}
-    
-    Protocole sortie (serveur → client) :
-      - JSON : WSEvent {type, data, timestamp}
-    """
     await ws.accept()
-    manager = get_meeting_manager()
-
-    # Wiring des callbacks vers ce WebSocket
-    async def send_event(event_type: WSEventType, data):
-        try:
-            event = WSEvent(type=event_type, data=data)
-            await ws.send_text(event.model_dump_json())
-        except Exception:
-            pass  # client déconnecté
-
-    async def on_partial(text: str, start: float):
-        await send_event(WSEventType.PARTIAL_TRANSCRIPT, {
-            "text": text,
-            "start": start,
-        })
-
-    async def on_segment(segment):
-        await send_event(WSEventType.FINAL_SEGMENT, segment.model_dump())
-
-    async def on_stats(stats: dict):
-        await send_event(WSEventType.STATS_UPDATE, stats)
-
-    manager.on_partial_transcript = on_partial
-    manager.on_final_segment = on_segment
-    manager.on_stats_update = on_stats
-
-    await send_event(WSEventType.STATUS, {"message": "WebSocket connecté"})
-    logger.info("Client WebSocket connecté")
-
+    await ws.send_text('{"type":"status","data":{"message":"connecté"}}')
     try:
         while True:
-            message = await ws.receive()
-            
-            if "bytes" in message and message["bytes"]:
-                # Chunk audio brut
-                await manager.process_audio_chunk(message["bytes"])
-
-            elif "text" in message and message["text"]:
-                # Commandes JSON ou base64
-                try:
-                    payload = json.loads(message["text"])
-                    
-                    if isinstance(payload, dict):
-                        msg_type = payload.get("type", "")
-                        
-                        if msg_type == "audio_base64":
-                            # Audio encodé en base64
-                            audio_bytes = base64.b64decode(payload["data"])
-                            await manager.process_audio_chunk(audio_bytes)
-                        
-                        elif msg_type == "command":
-                            cmd = payload.get("cmd", "")
-                            if cmd == "ping":
-                                await send_event(WSEventType.STATUS, {"message": "pong"})
-                            elif cmd == "status":
-                                await send_event(WSEventType.STATUS, {
-                                    "is_recording": manager.is_recording(),
-                                    "segment_count": len(manager.state.segments) if manager.state else 0,
-                                })
-                except json.JSONDecodeError:
-                    pass
-
+            await ws.receive()
     except WebSocketDisconnect:
-        logger.info("Client WebSocket déconnecté")
-    except Exception as e:
-        logger.error(f"Erreur WebSocket: {e}")
-        await send_event(WSEventType.ERROR, {"message": str(e)})
-    finally:
-        manager.on_partial_transcript = None
-        manager.on_final_segment = None
-        manager.on_stats_update = None
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Endpoint debug : injection manuelle d'un segment de démo
+# ---------------------------------------------------------------------------
+@app.post("/demo/inject")
+def inject_demo_segment():
+    """Injecte le prochain segment de démo. Appelé par le frontend."""
+    manager = get_meeting_manager()
+    if not manager.state or not manager.state.is_recording:
+        raise HTTPException(400, "Pas de réunion en cours.")
+    
+    state = manager.state
+    current = len([s for s in state.segments if not s.is_partial])
+    
+    if current >= len(DEMO_SEGMENTS):
+        return {"done": True, "total": current}
+    
+    speaker, text, moment_type = DEMO_SEGMENTS[current]
+    seg = TranscriptSegment(
+        id=str(uuid.uuid4()),
+        start=float(current * 5),
+        end=float(current * 5 + 4),
+        speaker=speaker,
+        text=text,
+        confidence=0.95,
+        is_partial=False,
+        moment_type=moment_type,
+    )
+    state.segments.append(seg)
+    get_stats_service().full_update(state)
+    logger.info(f"[DEMO/inject] segment {current+1}: {speaker}: {text[:40]}")
+    return {"done": False, "total": current + 1, "segment": seg.model_dump()}
