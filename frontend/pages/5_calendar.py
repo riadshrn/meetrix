@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 _LOGO      = str(Path(__file__).parent.parent / "assets" / "logo.png")
 _LOGO_ICON = str(Path(__file__).parent.parent / "assets" / "favicon.png")
-st.set_page_config(page_title="Meetrix", page_icon=_LOGO_ICON, layout="wide")
 st.logo(_LOGO, icon_image=_LOGO_ICON, size="large")
 
 
