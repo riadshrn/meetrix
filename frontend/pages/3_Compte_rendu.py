@@ -338,11 +338,12 @@ if edit_mode:
 if participants:
     with st.container(border=True):
         rows = ""
-        for p in participants:
+        for j, p in enumerate(participants):
             pct = speakers.get(p, {}).get("percentage", 0)
             pct_str = f'<span style="font-size:0.8rem;color:#9ca3af;margin-left:8px">{round(pct)}% du temps de parole</span>' if pct > 0 else ""
+            border = "" if j == len(participants) - 1 else "border-bottom:1px solid #f3f4f6"
             rows += (
-                f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f3f4f6">'
+                f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;{border}">'
                 f'<div class="avatar" style="background:{avatar_color(p)}">{initials(p)}</div>'
                 f'<span style="font-weight:600;font-size:0.92rem">{p}</span>{pct_str}'
                 f'</div>'
@@ -384,10 +385,11 @@ with st.container(border=True):
         edited["decisions"] = [l.lstrip("-•* ") for l in new_dec.splitlines() if l.strip()]
     elif decisions:
         dec_html = "".join(
-            f'<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid #f0fdf4">'
+            f'<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;'
+            f'{"" if k == len(decisions)-1 else "border-bottom:1px solid #f0fdf4"}">'
             f'<span style="color:#22c55e;font-size:1rem;flex-shrink:0;margin-top:1px">✓</span>'
             f'<span style="font-size:0.9rem;color:#166534">{_clean(d)}</span></div>'
-            for d in decisions
+            for k, d in enumerate(decisions)
         )
         st.markdown(dec_html, unsafe_allow_html=True)
     else:
@@ -469,7 +471,8 @@ with st.container(border=True):
                             else:
                                 st.session_state["cr_tasks_sent"][task_id] = True
                                 st.rerun()
-                st.markdown('<hr style="margin:4px 0;border:none;border-top:1px solid #e5e7eb">', unsafe_allow_html=True)
+                if i < len(work_items) - 1:
+                    st.markdown('<hr style="margin:4px 0;border:none;border-top:1px solid #e5e7eb">', unsafe_allow_html=True)
 
         if edit_mode:
             if st.button("＋ Ajouter une tâche", key="add_task"):
