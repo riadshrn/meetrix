@@ -154,7 +154,7 @@ def api_start(title):
 
 def api_stop():
     try:
-        requests.post(f"{BACKEND}/stop", timeout=5)
+        requests.post(f"{BACKEND}/stop", timeout=15)
     except Exception as e:
         st.session_state["error"] = str(e)
 
@@ -278,6 +278,12 @@ with c4:
         if st.button("⏹️ Arrêter", type="secondary", use_container_width=True):
             _inject_stop.set()
             _audio_stop.set()
+            with st.spinner("Finalisation de la transcription..."):
+                time.sleep(1.5)  # laisser le dernier chunk arriver
+                try:
+                    requests.post(f"{BACKEND}/flush", timeout=10)
+                except Exception:
+                    pass
             api_stop()
             st.session_state["recording"] = False
             st.rerun()
