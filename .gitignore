@@ -60,3 +60,6 @@ data/
 temp/
 *.wav
 *.mp3
+
+# Exports générés
+exports/

@@ -20,7 +20,10 @@ from backend.models.meeting import CalendarEventRequest, MeetingReport
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/tasks",
+]
 CREDENTIALS_FILE = Path("client_secret.json")
 TOKEN_FILE = Path("token.json")
 
@@ -191,3 +194,55 @@ def get_calendar_service() -> CalendarService:
     if _calendar_service is None:
         _calendar_service = CalendarService()
     return _calendar_service
+
+
+# ---------------------------------------------------------------------------
+# Google Tasks Service
+# ---------------------------------------------------------------------------
+
+class GoogleTasksService:
+    """Crée des tâches dans Google Tasks."""
+
+    def create_task(self, task: str, assignee: str = "", due_date: str = None, notes: str = None) -> dict:
+        """Crée une tâche dans la liste 'My Tasks' de l'utilisateur connecté."""
+        try:
+            from googleapiclient.discovery import build
+        except ImportError:
+            return {"error": "google-api-python-client non installé", "stub": True}
+
+        try:
+            creds = _get_credentials()
+            service = build("tasks", "v1", credentials=creds, cache_discovery=False)
+
+            body = {"title": f"[{assignee}] {task}" if assignee and assignee != "Non assigné" else task}
+            if notes:
+                body["notes"] = notes
+            if due_date:
+                # Google Tasks attend RFC 3339 (ex: 2024-12-31T00:00:00.000Z)
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
+                    body["due"] = dt.strftime("%Y-%m-%dT00:00:00.000Z")
+                except Exception:
+                    pass
+
+            task_result = service.tasks().insert(tasklist="@default", body=body).execute()
+            logger.info(f"Tâche Google Tasks créée: {task_result.get('title')}")
+            return {
+                "task_id": task_result.get("id"),
+                "title": task_result.get("title"),
+                "status": task_result.get("status"),
+                "link": task_result.get("selfLink"),
+            }
+        except Exception as e:
+            logger.error(f"Erreur création tâche Google Tasks: {e}")
+            raise
+
+
+_tasks_service: GoogleTasksService | None = None
+
+def get_tasks_service() -> GoogleTasksService:
+    global _tasks_service
+    if _tasks_service is None:
+        _tasks_service = GoogleTasksService()
+    return _tasks_service
