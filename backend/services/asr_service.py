@@ -1,11 +1,11 @@
 """
-Service ASR en streaming avec diarisation légère (numpy uniquement).
+Service ASR en streaming avec diarisation ECAPA-TDNN (speechbrain).
 
 Pipeline :
   1. receive_chunk()  → buffer audio
   2. Flush déclenché par timer (1.5s) OU silence (changement de voix)
   3. WhisperASR       → segments texte avec timestamps
-  4. LightDiarizer    → MFCC embedding + cosine similarity clustering
+  4. EcapaDiarizer    → embeddings ECAPA-TDNN + cosine similarity clustering
   5. on_segment()     → callback vers l'API
 """
 from __future__ import annotations
@@ -41,86 +41,102 @@ SILENCE_RMS        = 0.004  # seuil RMS en dessous duquel = silence
 SILENCE_CHUNKS_MIN = 2      # chunks silence consécutifs → flush anticipé (~1s)
 MIN_BUFFER_SILENCE = SAMPLE_RATE * 2 * 0.6  # buffer minimum avant flush silence
 
-SPEAKER_SIMILARITY = 0.92   # seuil cosine similarity spectral (embedding normalisé)
+SPEAKER_SIMILARITY = 0.50   # seuil cosine similarity ECAPA-TDNN
 MAX_SPEAKERS       = 20
 
+# ── Diariseur ECAPA-TDNN (speechbrain) ───────────────────────────────────────
+try:
+    import torch
+    import torchaudio
+    import huggingface_hub
+    # Patch torchaudio 2.x : list_audio_backends supprimé
+    if not hasattr(torchaudio, "list_audio_backends"):
+        torchaudio.list_audio_backends = lambda: []
+    # Patch huggingface_hub 1.x : use_auth_token → token
+    _orig_hf_download = huggingface_hub.hf_hub_download
+    def _patched_hf_download(*args, **kwargs):
+        if "use_auth_token" in kwargs:
+            kwargs["token"] = kwargs.pop("use_auth_token")
+        return _orig_hf_download(*args, **kwargs)
+    huggingface_hub.hf_hub_download = _patched_hf_download
+    from speechbrain.pretrained import EncoderClassifier
+    SPEECHBRAIN_AVAILABLE = True
+except ImportError:
+    SPEECHBRAIN_AVAILABLE = False
+    logger.warning("speechbrain non disponible — fallback numpy")
 
-# ── Diariseur MFCC (numpy only) ───────────────────────────────────────────────
-class LightDiarizer:
+
+class EcapaDiarizer:
     """
-    Diarisation en ligne par embeddings MFCC + cosine similarity.
-    100% numpy, aucune dépendance C++.
-
-    Pour chaque segment Whisper :
-      - Extrait le sous-array audio correspondant aux timestamps
-      - Calcule un vecteur MFCC moyen (20 coefficients)
-      - Compare cosine similarity avec les locuteurs connus
-      - Crée un nouvel ID si aucun match au-dessus du seuil
+    Diarisation en ligne par embeddings ECAPA-TDNN (speechbrain).
+    Beaucoup plus stable que MFCC pour distinguer 5+ locuteurs.
     """
 
     def __init__(self):
         self._speakers: list[tuple[str, np.ndarray]] = []
         self._counter  = 1
+        self._model    = None
+        if SPEECHBRAIN_AVAILABLE:
+            try:
+                logger.info("Chargement ECAPA-TDNN...")
+                self._model = EncoderClassifier.from_hparams(
+                    source="speechbrain/spkrec-ecapa-voxceleb",
+                    run_opts={"device": "cpu"},
+                )
+                logger.info("ECAPA-TDNN chargé.")
+            except Exception as e:
+                logger.warning(f"ECAPA-TDNN échec: {e} — fallback numpy")
+                self._model = None
 
     def reset(self):
         self._speakers.clear()
         self._counter = 1
 
-    def _speaker_embedding(self, audio_np: np.ndarray) -> Optional[np.ndarray]:
-        """
-        Embedding vocal par profil spectral en bandes de fréquence.
-        Bien plus discriminant que MFCC moyen pour distinguer homme/femme
-        et locuteurs différents : capture pitch, formants, timbre.
-        """
+    def _embed(self, audio_np: np.ndarray) -> Optional[np.ndarray]:
+        if self._model is not None:
+            try:
+                # ECAPA attend un tensor float32 [1, T] à 16kHz
+                wav = torch.tensor(audio_np, dtype=torch.float32).unsqueeze(0)
+                with torch.no_grad():
+                    emb = self._model.encode_batch(wav).squeeze().numpy()
+                norm = np.linalg.norm(emb)
+                return emb / norm if norm > 1e-8 else None
+            except Exception as e:
+                logger.debug(f"ECAPA embed erreur: {e}")
+
+        # Fallback numpy spectral
         if len(audio_np) < 400:
             return None
-
-        # Spectre de puissance sur tout le signal (haute résolution fréquentielle)
         N     = max(4096, len(audio_np))
         fft   = np.abs(np.fft.rfft(audio_np, n=N)) ** 2
         freqs = np.fft.rfftfreq(N, d=1.0 / SAMPLE_RATE)
-
-        # 16 bandes centrées sur les zones clés voix humaine
-        # (pitch H ~80-180Hz, pitch F ~180-300Hz, formants 300-3500Hz)
         band_limits = [60, 100, 150, 200, 250, 300, 400, 550,
                        750, 1000, 1500, 2000, 2800, 3500, 5000, 8000]
         features = []
         for i in range(len(band_limits) - 1):
             lo, hi = band_limits[i], band_limits[i + 1]
             mask   = (freqs >= lo) & (freqs < hi)
-            energy = np.mean(fft[mask]) if mask.any() else 0.0
-            features.append(float(energy))
-
-        # ZCR (proxy du pitch : voix grave → peu de ZCR, voix aiguë → beaucoup)
+            features.append(float(np.mean(fft[mask])) if mask.any() else 0.0)
         zcr = float(np.mean(np.abs(np.diff(np.sign(audio_np)))) / 2)
         features.append(zcr)
-
-        # Centroïde spectral (femme > homme en général)
         total = np.sum(fft) + 1e-10
-        centroid = float(np.sum(freqs * fft) / total)
-        features.append(centroid / (SAMPLE_RATE / 2))  # normalisé [0,1]
-
+        features.append(float(np.sum(freqs * fft) / total) / (SAMPLE_RATE / 2))
         emb = np.array(features)
         norm = np.linalg.norm(emb)
         return emb / norm if norm > 1e-8 else None
 
-    # ── Identification locuteur ────────────────────────────────────────────────
     def identify(self, audio_bytes: bytes,
                  seg_start: float, seg_end: float,
                  chunk_start_time: float) -> str:
         try:
             full = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-
-            # Extraire le sous-array du segment Whisper
             s = max(0, int((seg_start - chunk_start_time) * SAMPLE_RATE))
-            e = min(len(full), int((seg_end   - chunk_start_time) * SAMPLE_RATE))
+            e = min(len(full), int((seg_end - chunk_start_time) * SAMPLE_RATE))
             seg_audio = full[s:e] if e > s else full
+            if len(seg_audio) < 1600:
+                seg_audio = full if len(full) >= 1600 else np.pad(full, (0, max(0, 1600 - len(full))))
 
-            # Compléter si trop court (besoin d'au moins ~0.4s pour MFCC)
-            if len(seg_audio) < 640:
-                seg_audio = full if len(full) >= 640 else np.pad(full, (0, 640 - len(full)))
-
-            emb = self._speaker_embedding(seg_audio)
+            emb = self._embed(seg_audio)
             if emb is None:
                 return "Intervenant 1"
 
@@ -130,16 +146,14 @@ class LightDiarizer:
                 self._counter += 1
                 return name
 
-            # Cosine similarity
-            norm_emb = emb / (np.linalg.norm(emb) + 1e-8)
             sims = [
-                (name, float(np.dot(norm_emb, sp / (np.linalg.norm(sp) + 1e-8))))
+                (name, float(np.dot(emb, sp / (np.linalg.norm(sp) + 1e-8))))
                 for name, sp in self._speakers
             ]
             best_name, best_sim = max(sims, key=lambda x: x[1])
+            logger.info(f"[DIAR] best={best_name} sim={best_sim:.3f} seuil={SPEAKER_SIMILARITY}")
 
             if best_sim >= SPEAKER_SIMILARITY:
-                # Mise à jour moyenne glissante de l'embedding
                 idx = next(i for i, (n, _) in enumerate(self._speakers) if n == best_name)
                 self._speakers[idx] = (best_name, 0.85 * self._speakers[idx][1] + 0.15 * emb)
                 return best_name
@@ -150,7 +164,7 @@ class LightDiarizer:
                 self._counter += 1
                 return name
 
-            return best_name  # plafond atteint → locuteur le plus proche
+            return best_name
 
         except Exception as e:
             logger.debug(f"Diarisation erreur: {e}")
@@ -213,7 +227,7 @@ class WhisperASR:
 class StreamingASRService:
     def __init__(self):
         self._asr      = WhisperASR() if FASTER_WHISPER_AVAILABLE else StubASR()
-        self._diarizer = LightDiarizer()
+        self._diarizer = EcapaDiarizer()
 
         self._buffer:            bytearray = bytearray()
         self._buffer_start_time: float    = 0.0
