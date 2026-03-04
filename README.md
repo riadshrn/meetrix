@@ -53,7 +53,7 @@ Application complète de support de réunion tournant **en local** sur votre PC.
 | `backend/services/calendar_service.py` | Google Calendar OAuth |
 | `frontend/pages/1_transcription.py` | UI transcription live |
 | `frontend/pages/2_stats.py` | Graphiques (bar, mots, timeline) |
-| `frontend/pages/3_report.py` | Rapport IA + export |
+| `frontend/pages/3_Compte_rendu.py` | Compte rendu IA, historique, Google Tasks |
 | `frontend/pages/4_qa.py` | Assistant Q&A chat |
 | `frontend/pages/5_calendar.py` | Création événement Calendar |
 
@@ -85,7 +85,7 @@ meeting-ai-assistant/
 │   └── pages/
 │       ├── 1_transcription.py   # Live transcription + audio
 │       ├── 2_stats.py           # Graphiques
-│       ├── 3_report.py          # Rapport IA
+│       ├── 3_Compte_rendu.py    # Compte rendu IA + Google Tasks
 │       ├── 4_qa.py              # Q&A chatbot
 │       └── 5_calendar.py        # Google Calendar
 ├── docker/
@@ -210,13 +210,17 @@ docker-compose down
 
 ---
 
-## 📅 Activer Google Calendar (OAuth)
+## 📅 Activer Google Calendar & Google Tasks (OAuth)
+
+Ces deux intégrations partagent les mêmes credentials OAuth. Les étapes suivantes les activent toutes les deux.
 
 ### Étapes
 
 1. Allez sur https://console.cloud.google.com/
 2. Créez un projet (ou sélectionnez un existant)
-3. Activez l'**API Google Calendar** (APIs & Services → Library)
+3. Activez les deux APIs dans **APIs & Services → Library** :
+   - **Google Calendar API**
+   - **Google Tasks API**
 4. Créez des credentials OAuth 2.0 :
    - APIs & Services → Credentials → Create Credentials → OAuth client ID
    - Type : **Desktop application**
@@ -226,10 +230,13 @@ docker-compose down
    ```bash
    pip install google-api-python-client google-auth-oauthlib
    ```
-7. Au premier lancement de la page Calendar, un navigateur s'ouvrira pour l'autorisation
-8. Le token est sauvegardé dans `token.json` (renouvellement automatique)
+7. L'application est en mode **Test** par défaut — ajoutez votre compte Gmail comme testeur :
+   - APIs & Services → **OAuth consent screen** → **Audience** → **Test users** → Add users
+8. Supprimez `token.json` si il existe déjà (pour forcer la ré-authentification avec les nouveaux scopes)
+9. Au prochain lancement, un navigateur s'ouvrira pour l'autorisation
+10. Le token est sauvegardé dans `token.json` (renouvellement automatique)
 
-> ⚠️ Ne committez jamais `client_secret.json` ni `token.json` (ajoutez-les au `.gitignore`)
+> ⚠️ Ne committez jamais `client_secret.json` ni `token.json` (déjà dans le `.gitignore`)
 
 ---
 

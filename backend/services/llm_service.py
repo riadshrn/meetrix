@@ -27,13 +27,14 @@ MISTRAL_MODEL = "mistral-large-latest"
 # ---------------------------------------------------------------------------
 
 PROMPT_A_SUMMARY = """Tu es un assistant expert en analyse de réunions professionnelles.
-À partir de la transcription ci-dessous, génère un résumé structuré en français avec les sections suivantes :
+À partir de la transcription ci-dessous, génère un compte-rendu structuré en français avec exactement ces 4 sections :
 
 **CONTEXTE** : Brève description du contexte et objectif de la réunion (2-3 phrases).
-**DÉCISIONS** : Liste des décisions prises (format bullet points).
-**POINTS OUVERTS** : Questions ou sujets non résolus.
-**RISQUES** : Risques ou problèmes identifiés.
+**POINTS DISCUTÉS** : Principaux sujets abordés (3-6 bullet points max, une ligne par point, pas de sous-listes).
+**DÉCISIONS** : Uniquement les décisions formelles prises (approbations, choix stratégiques). Une décision complète par bullet point, sans catégories, sans sous-listes, sans nommer des responsables ici.
+**POINTS OUVERTS** : Questions non résolues, risques identifiés, sujets à traiter lors de la prochaine réunion (bullet points).
 
+IMPORTANT : Chaque bullet point doit être une phrase complète sur UNE SEULE LIGNE. N'utilise pas de sous-listes ni de catégories en gras suivies de ":".
 Sois concis et factuel. N'invente rien qui ne soit pas dans la transcription.
 
 Transcription :
@@ -82,7 +83,7 @@ class MistralClient:
         self.api_key = os.environ.get("MISTRAL_API_KEY", "")
         if not self.api_key:
             logger.warning("MISTRAL_API_KEY non définie — les appels LLM échoueront")
-        self.client = httpx.AsyncClient(timeout=60.0)
+        self.client = httpx.AsyncClient(timeout=120.0)
 
     async def _call(self, prompt: str, max_tokens: int = 2000, temperature: float = 0.3) -> str:
         """Appel générique à l'API Mistral."""
@@ -190,7 +191,7 @@ class LLMService:
         summary, action_items = await asyncio.gather(summary_task, actions_task)
 
         # Parse les sections du résumé
-        decisions, open_points, risks, context_text = _parse_summary_sections(summary)
+        discussed_points, decisions, open_points, context_text = _parse_summary_sections(summary)
 
         duration = 0.0
         if state.ended_at:
@@ -201,9 +202,10 @@ class LLMService:
             title=state.title,
             summary=summary,
             context=context_text,
+            discussed_points=discussed_points,
             decisions=decisions,
             open_points=open_points,
-            risks=risks,
+            risks=[],
             action_items=action_items,
             participants=list(state.speakers_stats.keys()),
             duration_minutes=duration,
@@ -218,34 +220,59 @@ class LLMService:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _clean_md(text: str) -> str:
+    """Supprime les marqueurs markdown bold et nettoie."""
+    import re
+    return re.sub(r'\*\*(.+?)\*\*', r'\1', text).strip()
+
+
 def _parse_summary_sections(summary: str):
-    """Extrait les sections du résumé structuré."""
-    sections = {"CONTEXTE": "", "DÉCISIONS": [], "POINTS OUVERTS": [], "RISQUES": []}
+    """Extrait les 4 sections du résumé structuré."""
+    import re
+    sections = {"CONTEXTE": "", "POINTS DISCUTÉS": [], "DÉCISIONS": [], "POINTS OUVERTS": []}
     current = None
+
+    def _is_bullet(s):
+        """Détecte un vrai bullet point (pas un titre en gras)."""
+        return s.startswith(("-", "•", "·")) or s.startswith("* ")
 
     for line in summary.split("\n"):
         stripped = line.strip()
-        if "CONTEXTE" in stripped.upper():
+        if not stripped:
+            continue
+        upper = stripped.upper()
+        if "CONTEXTE" in upper and not _is_bullet(stripped):
             current = "CONTEXTE"
-        elif "DÉCISIONS" in stripped.upper() or "DECISIONS" in stripped.upper():
+        elif ("POINTS DISCUTÉS" in upper or "POINTS DISCUTES" in upper) and not _is_bullet(stripped):
+            current = "POINTS DISCUTÉS"
+        elif ("DÉCISIONS" in upper or "DECISIONS" in upper) and not _is_bullet(stripped):
             current = "DÉCISIONS"
-        elif "POINTS OUVERTS" in stripped.upper():
+        elif "POINTS OUVERTS" in upper and not _is_bullet(stripped):
             current = "POINTS OUVERTS"
-        elif "RISQUES" in stripped.upper():
-            current = "RISQUES"
-        elif current and stripped:
+        elif current:
             if current == "CONTEXTE":
                 sections[current] += " " + stripped
-            elif stripped.startswith(("-", "•", "*", "·")):
-                sections[current].append(stripped.lstrip("-•*· "))
-            elif stripped and isinstance(sections[current], list):
-                sections[current].append(stripped)
+            elif isinstance(sections[current], list):
+                # Extraire le texte du bullet
+                if stripped.startswith(("-", "•", "·")):
+                    item = stripped.lstrip("-•·· ").strip()
+                elif stripped.startswith("* "):
+                    item = stripped[2:].strip()
+                else:
+                    item = stripped
+                # Supprimer les marqueurs **...**
+                item = _clean_md(item)
+                # Ignorer les lignes qui sont juste "Label :" (headers sans contenu)
+                if re.match(r'^[^:]{1,40}:\s*$', item):
+                    continue
+                if item:
+                    sections[current].append(item)
 
     return (
+        sections["POINTS DISCUTÉS"],
         sections["DÉCISIONS"],
         sections["POINTS OUVERTS"],
-        sections["RISQUES"],
-        sections["CONTEXTE"].strip(),
+        _clean_md(sections["CONTEXTE"]),
     )
 
 

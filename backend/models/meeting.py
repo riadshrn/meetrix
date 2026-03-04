@@ -130,6 +130,7 @@ class MeetingReport(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     summary: str = ""
     context: str = ""
+    discussed_points: List[str] = Field(default_factory=list)
     decisions: List[str] = Field(default_factory=list)
     open_points: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
@@ -189,3 +190,12 @@ class CalendarEventRequest(BaseModel):
     duration_minutes: int = 60
     attendees: List[str] = Field(default_factory=list)
     timezone: str = "Europe/Paris"
+
+
+class CreateTaskRequest(BaseModel):
+    """Requête de création d'une tâche Google Tasks."""
+    task: str
+    assignee: str = "Non assigné"
+    due_date: Optional[str] = None
+    notes: Optional[str] = None
+    meeting_title: str = ""
