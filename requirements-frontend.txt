@@ -1,0 +1,17 @@
+# Frontend uniquement — a installer sur Windows (host)
+# pip install -r requirements-frontend.txt
+
+streamlit==1.40.0
+plotly==5.24.1
+pandas==2.2.3
+requests==2.32.3
+sounddevice==0.5.1
+websocket-client==1.8.0
+numpy>=2.0.0
+python-dotenv==1.0.1
+pydantic==2.9.2
+
+# Export optionnel
+google-api-python-client==2.151.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.1

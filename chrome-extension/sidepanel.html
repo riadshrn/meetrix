@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meetrix</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header id="header">
+    <div class="header-left">
+      <span class="logo">Meetrix</span>
+      <span id="ws-dot" class="ws-dot" title="WebSocket"></span>
+    </div>
+    <div class="header-right">
+      <span id="rec-badge" class="rec-badge hidden">⏺ REC</span>
+      <button id="btn-settings" class="icon-btn" title="Paramètres">⚙</button>
+    </div>
+  </header>
+
+  <!-- ── Settings ── -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <label class="field-label">URL du backend</label>
+    <input id="backend-url" type="text" class="input" value="http://localhost:8000" placeholder="http://localhost:8000">
+    <button id="btn-save-settings" class="btn btn-primary btn-sm">Sauvegarder</button>
+  </div>
+
+  <!-- ── Controls ── -->
+  <div id="controls">
+    <input id="meeting-title" type="text" class="input" placeholder="Titre de la réunion" value="Réunion Meet">
+    <div class="controls-row">
+      <button id="btn-start" class="btn btn-start">▶ Démarrer</button>
+      <button id="btn-stop"  class="btn btn-stop"  disabled>⏹ Arrêter</button>
+      <button id="btn-reset" class="btn btn-reset"  title="Réinitialiser">↺</button>
+    </div>
+  </div>
+
+  <!-- ── Error ── -->
+  <div id="error-box" class="error-box hidden"></div>
+
+  <!-- ── Tabs nav ── -->
+  <nav id="tab-nav">
+    <button class="tab-btn active" data-tab="live">🎙 Live</button>
+    <button class="tab-btn"        data-tab="stats">📊 Stats</button>
+    <button class="tab-btn"        data-tab="rapport">📋 Rapport</button>
+    <button class="tab-btn"        data-tab="qa">❓ Q&A</button>
+    <button class="tab-btn"        data-tab="emotions">😊 Émotions</button>
+  </nav>
+
+  <!-- ── Content ── -->
+  <main id="content">
+
+    <!-- ─ Live ─ -->
+    <div id="tab-live" class="tab-pane active">
+      <div id="partial-bar" class="partial-bar hidden"></div>
+      <div id="transcript" class="transcript-list"></div>
+      <div id="empty-live" class="empty-state">
+        <p>Démarrez la réunion pour voir la transcription en temps réel.</p>
+      </div>
+    </div>
+
+    <!-- ─ Stats ─ -->
+    <div id="tab-stats" class="tab-pane">
+      <div id="stats-content">
+        <div class="empty-state"><p>Aucune donnée — démarrez une réunion.</p></div>
+      </div>
+    </div>
+
+    <!-- ─ Rapport ─ -->
+    <div id="tab-rapport" class="tab-pane">
+      <div class="rapport-actions">
+        <button id="btn-generate" class="btn btn-primary full-width">🤖 Générer le compte rendu IA</button>
+      </div>
+      <div id="rapport-empty" class="empty-state"><p>Arrêtez la réunion, puis générez le compte rendu.</p></div>
+      <div id="rapport-content" class="hidden"></div>
+    </div>
+
+    <!-- ─ Q&A ─ -->
+    <div id="tab-qa" class="tab-pane qa-layout">
+      <div id="qa-suggestions" class="qa-chips">
+        <button class="chip" data-q="Quelles sont les décisions prises ?">Décisions</button>
+        <button class="chip" data-q="Qui est responsable de quoi ?">Responsables</button>
+        <button class="chip" data-q="Quels sont les risques identifiés ?">Risques</button>
+        <button class="chip" data-q="Quelle est la prochaine étape ?">Next step</button>
+        <button class="chip" data-q="Résume en 3 points clés.">Résumé</button>
+      </div>
+      <div id="qa-messages" class="qa-messages"></div>
+      <div class="qa-input-row">
+        <input id="qa-input" type="text" class="input" placeholder="Posez votre question...">
+        <button id="qa-send" class="btn btn-primary">→</button>
+      </div>
+    </div>
+
+    <!-- ─ Émotions ─ -->
+    <div id="tab-emotions" class="tab-pane">
+      <div id="emotions-content">
+        <div class="empty-state">
+          <p>😊 Émotions en direct</p>
+          <small>Nécessite <code>libs/face-api.min.js</code></small>
+          <br><br>
+          <small>Télécharger :<br>
+          <a href="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"
+             target="_blank" rel="noopener">face-api.min.js</a><br>
+          → placer dans <code>chrome-extension/libs/</code></small>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+<script src="sidepanel.js"></script>
+</body>
+</html>
