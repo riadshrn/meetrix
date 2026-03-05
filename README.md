@@ -348,6 +348,10 @@ docker-compose up --build
 > Le premier build télécharge torch (~500 Mo) et les dépendances — prévoir 5 à 10 minutes.
 > Le modèle ECAPA-TDNN (~150 Mo) est téléchargé au premier démarrage du backend et mis en cache dans un volume Docker.
 
+> **Limitations Docker (audio)** : les conteneurs n'ont pas accès aux périphériques audio de la machine hôte.
+> - ❌ La transcription via **micro virtuel** (VB-Audio/BlackHole) dans Streamlit ne fonctionne pas
+> - ✅ Le **mode Démo** fonctionne pour tester l'UI sans audio
+
 **3. Accéder à l'application :**
 - 🌐 Interface Streamlit : http://localhost:8501
 - 📚 API Docs : http://localhost:8000/docs
