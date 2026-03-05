@@ -35,7 +35,7 @@ SAMPLE_RATE        = 16000
 CHUNK_DURATION     = 0.5
 ACCUMULATE_SECONDS = 0.8    # flush toutes les 0.8s pour réduire la latence
 PARTIAL_INTERVAL   = 0.8
-MODEL_SIZE         = "large-v2"
+MODEL_SIZE         = "medium"
 
 SILENCE_RMS        = 0.004  # seuil RMS en dessous duquel = silence
 SILENCE_CHUNKS_MIN = 2      # chunks silence consécutifs → flush anticipé (~1s)

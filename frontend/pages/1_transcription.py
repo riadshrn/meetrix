@@ -147,7 +147,7 @@ def _audio_loop(mic_idx, cable_idx):
 # ── API helpers ───────────────────────────────────────────────────────────────
 def api_start(title):
     try:
-        r = requests.post(f"{BACKEND}/start", json={"title": title}, timeout=5)
+        r = requests.post(f"{BACKEND}/start", json={"title": title}, timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -162,7 +162,7 @@ def api_stop():
 
 def api_reset():
     try:
-        requests.post(f"{BACKEND}/reset", timeout=5)
+        requests.post(f"{BACKEND}/reset", timeout=15)
     except Exception:
         pass
 
