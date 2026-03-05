@@ -33,9 +33,9 @@ except ImportError:
 # ── Configuration ─────────────────────────────────────────────────────────────
 SAMPLE_RATE        = 16000
 CHUNK_DURATION     = 0.5
-ACCUMULATE_SECONDS = 1.5    # flush toutes les 1.5s (vs 3.0s avant)
-PARTIAL_INTERVAL   = 1.5
-MODEL_SIZE         = "medium"
+ACCUMULATE_SECONDS = 0.8    # flush toutes les 0.8s pour réduire la latence
+PARTIAL_INTERVAL   = 0.8
+MODEL_SIZE         = "large-v2"
 
 SILENCE_RMS        = 0.004  # seuil RMS en dessous duquel = silence
 SILENCE_CHUNKS_MIN = 2      # chunks silence consécutifs → flush anticipé (~1s)
@@ -213,7 +213,7 @@ class WhisperASR:
             segs, _ = self.model.transcribe(
                 audio_np,
                 language="fr",
-                beam_size=5,
+                beam_size=2,
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=300, speech_pad_ms=100),
                 condition_on_previous_text=False,

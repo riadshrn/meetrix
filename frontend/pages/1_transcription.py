@@ -182,6 +182,12 @@ spk_stats = state.get("speakers_stats", {})
 total_dur = state.get("total_duration", 0)
 key_mom   = state.get("key_moments", [])
 
+if "speaker_mapping" not in st.session_state:
+    st.session_state["speaker_mapping"] = {}
+
+def apply_speaker_mapping(name: str) -> str:
+    return st.session_state["speaker_mapping"].get(name, name)
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.subheader("⚙️ Config")
@@ -234,8 +240,22 @@ with st.sidebar:
         st.warning("sounddevice non disponible")
         cable_idx = None
 
+    # ── Renommer les intervenants ─────────────────────────────────────────────
+    raw_speakers = sorted({s.get("speaker", "") for s in segments if s.get("speaker")})
+    if raw_speakers:
+        st.markdown("---")
+        st.subheader("✏️ Intervenants")
+        for spk in raw_speakers:
+            new_name = st.text_input(spk, value=st.session_state["speaker_mapping"].get(spk, ""),
+                                     placeholder=spk, key=f"rename_{spk}")
+            if new_name.strip():
+                st.session_state["speaker_mapping"][spk] = new_name.strip()
+            elif spk in st.session_state["speaker_mapping"]:
+                del st.session_state["speaker_mapping"][spk]
+
     st.markdown("---")
-    st.success(f"✅ {len(segments)} segments reçus")
+    n = len(segments)
+    st.success(f"✅ {n} segment{'s' if n > 1 else ''} reçu{'s' if n > 1 else ''}")
     if state.get("_error"):
         st.error(f"Backend: {state['_error']}")
 
@@ -247,7 +267,7 @@ c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
 
 with c1:
     label = "🔴 **ENREGISTREMENT EN COURS**" if st.session_state["recording"] else "⚫ **EN ATTENTE**"
-    badge = "🎙️ Micro réel" if st.session_state["mode"] == "real" else "🤖 Mode Mock"
+    badge = "🎙️ Micro réel" if st.session_state["mode"] == "real" else "🤖 Mode Démo"
     st.markdown(f"{label} — {badge}")
 
 with c2:
@@ -270,7 +290,7 @@ with c2:
 
 with c3:
     if not st.session_state["recording"]:
-        if st.button("🤖 Mock", type="secondary", use_container_width=True):
+        if st.button("🎭 Démo", type="secondary", use_container_width=True):
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "mock", "error": None})
@@ -332,10 +352,11 @@ with left:
         with st.container(height=500):
             for seg in segments:
                 mt    = seg.get("moment_type")
-                spk   = seg.get("speaker", "?")
-                color = speaker_color(spk)
-                emoji = EMOJIS.get(mt, "")
-                ts    = f"{seg.get('start', 0):.0f}s"
+                raw_spk = seg.get("speaker", "?")
+                spk     = apply_speaker_mapping(raw_spk)
+                color   = speaker_color(raw_spk)
+                emoji   = EMOJIS.get(mt, "")
+                ts      = f"{seg.get('start', 0):.0f}s"
                 st.markdown(
                     f'<div style="border-left:4px solid {color};background:#1E1E2E;'
                     f'padding:8px 14px;margin:5px 0;border-radius:0 8px 8px 0">'
@@ -348,7 +369,7 @@ with left:
     elif st.session_state["recording"]:
         st.info("⏳ En attente du premier segment…")
     else:
-        st.caption("Cliquez sur ▶️ Micro réel ou 🤖 Mock pour démarrer.")
+        st.caption("Cliquez sur ▶️ Micro réel ou 🎭 Démo pour démarrer.")
 
 with right:
     st.subheader("📊 Stats")
