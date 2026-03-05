@@ -504,7 +504,32 @@ with st.container(border=True):
     else:
         st.success("Aucun point ouvert — réunion bien conclue !", icon="✅")
 
+# ── EXPORT ────────────────────────────────────────────────────────────────────
+ec1, ec2, ec3 = st.columns(3)
+
+with ec1:
+    try:
+        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=10).content
+        st.download_button("Télécharger en Markdown", data=md_bytes,
+                           file_name=f"rapport_{meeting_id[:8]}.md", mime="text/markdown",
+                           use_container_width=True)
+    except Exception:
+        st.button("Télécharger en Markdown", disabled=True, use_container_width=True)
+
+with ec2:
+    try:
+        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=15).content
+        st.download_button("Télécharger en PDF", data=pdf_bytes,
+                           file_name=f"rapport_{meeting_id[:8]}.pdf", mime="application/pdf",
+                           use_container_width=True)
+    except Exception:
+        st.button("Télécharger en PDF", disabled=True, use_container_width=True)
+
+with ec3:
+    st.link_button("Envoyer par mail", url=mailto_link(report), use_container_width=True)
+
 # ── PLANIFIER LA PROCHAINE RÉUNION ────────────────────────────────────────────
+st.markdown("---")
 with st.container(border=True):
     st.markdown("**📅 Planifier la prochaine réunion**")
     with st.form("cal_form_inline"):
@@ -565,28 +590,3 @@ with st.container(border=True):
                 st.markdown(f"[🎥 Rejoindre via Google Meet]({meet_link})")
         if cal_res.get("event_id") == "stub-event-id":
             st.warning("⚠️ Mode stub — configurez `client_secret.json` pour créer de vrais événements.")
-
-# ── EXPORT ────────────────────────────────────────────────────────────────────
-st.markdown("---")
-ec1, ec2, ec3 = st.columns(3)
-
-with ec1:
-    try:
-        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=10).content
-        st.download_button("Télécharger en Markdown", data=md_bytes,
-                           file_name=f"rapport_{meeting_id[:8]}.md", mime="text/markdown",
-                           use_container_width=True)
-    except Exception:
-        st.button("Télécharger en Markdown", disabled=True, use_container_width=True)
-
-with ec2:
-    try:
-        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=15).content
-        st.download_button("Télécharger en PDF", data=pdf_bytes,
-                           file_name=f"rapport_{meeting_id[:8]}.pdf", mime="application/pdf",
-                           use_container_width=True)
-    except Exception:
-        st.button("Télécharger en PDF", disabled=True, use_container_width=True)
-
-with ec3:
-    st.link_button("Envoyer par mail", url=mailto_link(report), use_container_width=True)
