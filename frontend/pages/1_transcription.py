@@ -308,9 +308,15 @@ if st.session_state.get("error"):
 
 st.markdown("---")
 
-# ── Couleurs moments clés ─────────────────────────────────────────────────────
-COLORS = {"decision": "#10B981", "action": "#F59E0B", "question": "#3B82F6", "risk": "#EF4444"}
-EMOJIS = {"decision": "✅", "action": "📌", "question": "❓", "risk": "⚠️"}
+# ── Couleurs par locuteur ─────────────────────────────────────────────────────
+EMOJIS         = {"decision": "✅", "action": "📌", "question": "❓", "risk": "⚠️"}
+SPEAKER_COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#3b82f6", "#8b5cf6", "#ef4444", "#06b6d4"]
+
+_speaker_index: dict = {}
+def speaker_color(name: str) -> str:
+    if name not in _speaker_index:
+        _speaker_index[name] = len(_speaker_index)
+    return SPEAKER_COLORS[_speaker_index[name] % len(SPEAKER_COLORS)]
 
 left, right = st.columns([2, 1])
 
@@ -320,14 +326,15 @@ with left:
         with st.container(height=500):
             for seg in segments:
                 mt    = seg.get("moment_type")
-                color = COLORS.get(mt, "#4F46E5")
+                spk   = seg.get("speaker", "?")
+                color = speaker_color(spk)
                 emoji = EMOJIS.get(mt, "")
                 ts    = f"{seg.get('start', 0):.0f}s"
                 st.markdown(
                     f'<div style="border-left:4px solid {color};background:#1E1E2E;'
                     f'padding:8px 14px;margin:5px 0;border-radius:0 8px 8px 0">'
                     f'<small style="color:#9CA3AF">[{ts}]</small> '
-                    f'<strong style="color:#E5E7EB">{seg.get("speaker","?")}</strong><br>'
+                    f'<strong style="color:{color}">{spk}</strong><br>'
                     f'<span style="color:#F3F4F6">{emoji} {seg.get("text","")}</span>'
                     f'</div>',
                     unsafe_allow_html=True,

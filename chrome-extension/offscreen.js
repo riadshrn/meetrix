@@ -1,11 +1,12 @@
 // ── Meetrix Offscreen — Capture audio + WebSocket ────────────────────────────
 
 const SAMPLE_RATE    = 16000;
-const CHUNK_SAMPLES  = 8000;   // 0.5s par chunk
+const CHUNK_SAMPLES  = 8192;   // ~0.512s par chunk (doit être une puissance de 2)
 
 let audioContext    = null;
 let scriptProcessor = null;
 let mediaStream     = null;
+let micStream       = null;
 let wsConnection    = null;
 let reconnectTimer  = null;
 let currentBackend  = null;
@@ -48,25 +49,45 @@ async function startCapture(streamId, backendUrl) {
       video: false
     });
 
+    // Récupérer le micro de l'utilisateur (best effort)
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (e) {
+      micStream = null; // micro non disponible, on continue sans
+    }
+
     // Connexion WebSocket
     connectWebSocket(backendUrl);
 
-    // Traitement audio
-    audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
-    const source = audioContext.createMediaStreamSource(mediaStream);
-    scriptProcessor = audioContext.createScriptProcessor(CHUNK_SAMPLES, 1, 1);
+    // Traitement audio — taux natif du système + rééchantillonnage à 16kHz
+    audioContext = new AudioContext(); // taux natif (44100 sur macOS, 48000 sur Windows)
+    await audioContext.resume();
+    const nativeRate = audioContext.sampleRate;
+
+    const summer = audioContext.createGain();
+    const tabSource = audioContext.createMediaStreamSource(mediaStream);
+    tabSource.connect(summer);
+    if (micStream) {
+      const micSource = audioContext.createMediaStreamSource(micStream);
+      micSource.connect(summer);
+    }
+
+    // Taille du buffer adaptée au taux natif (~0.5s)
+    const nativeChunk = Math.min(16384, Math.pow(2, Math.round(Math.log2(nativeRate * 0.5))));
+    scriptProcessor = audioContext.createScriptProcessor(nativeChunk, 1, 1);
 
     scriptProcessor.onaudioprocess = (e) => {
       if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) return;
-      const float32 = e.inputBuffer.getChannelData(0);
-      const int16   = new Int16Array(float32.length);
-      for (let i = 0; i < float32.length; i++) {
-        int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
+      const native  = e.inputBuffer.getChannelData(0);
+      const resampled = downsample(native, nativeRate, SAMPLE_RATE);
+      const int16   = new Int16Array(resampled.length);
+      for (let i = 0; i < resampled.length; i++) {
+        int16[i] = Math.max(-32768, Math.min(32767, Math.round(resampled[i] * 32767)));
       }
       wsConnection.send(int16.buffer);
     };
 
-    source.connect(scriptProcessor);
+    summer.connect(scriptProcessor);
     scriptProcessor.connect(audioContext.destination);
 
     notify('WS_STATUS', { status: 'capturing' });
@@ -132,9 +153,26 @@ function stopCapture() {
   if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
   if (audioContext)    { audioContext.close().catch(() => {}); audioContext = null; }
   if (mediaStream)     { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if (micStream)       { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   if (wsConnection)    { wsConnection.close(); wsConnection = null; }
 
   notify('WS_STATUS', { status: 'stopped' });
+}
+
+// ── Rééchantillonnage linéaire ────────────────────────────────────────────────
+
+function downsample(buffer, fromRate, toRate) {
+  if (fromRate === toRate) return buffer;
+  const ratio     = fromRate / toRate;
+  const newLength = Math.round(buffer.length / ratio);
+  const result    = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const src  = i * ratio;
+    const low  = Math.floor(src);
+    const high = Math.min(low + 1, buffer.length - 1);
+    result[i]  = buffer[low] + (buffer[high] - buffer[low]) * (src - low);
+  }
+  return result;
 }
 
 // ── Utilitaire ────────────────────────────────────────────────────────────────

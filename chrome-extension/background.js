@@ -62,6 +62,8 @@ async function closeOffscreen() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === 'GET_FRESH_STREAM_ID') {
+    // Fermer l'offscreen existant pour libérer le stream actif éventuel
+    closeOffscreen().catch(() => {});
     // Obtenir un streamId frais pour l'onglet Google Meet actif
     chrome.tabs.query({ url: 'https://meet.google.com/*', active: true }, (tabs) => {
       const tab = tabs[0];
@@ -125,6 +127,9 @@ async function handleStartCapture({ streamId, backendUrl }) {
   }
 
   try {
+    // Fermer l'offscreen existant d'abord pour libérer le stream actif éventuel
+    await closeOffscreen();
+    await new Promise(r => setTimeout(r, 300));
     await createOffscreen();
     await new Promise(r => setTimeout(r, 500));
     chrome.runtime.sendMessage({ action: 'DO_CAPTURE', streamId, backendUrl }).catch(() => {});
