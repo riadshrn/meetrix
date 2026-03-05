@@ -18,6 +18,7 @@ Application complète de support de réunion tournant **en local** sur votre mac
 ┌──────────────────────────────────────────────────────────────────┐
 │                       FASTAPI BACKEND                             │
 │  /start  /stop  /flush  /reset  /state  /report  /qa             │
+│  /calendar/create  /tasks/create                                  │
 │                                                                    │
 │  ┌────────────────┐  ┌──────────────────────────────────────┐    │
 │  │ MeetingManager │  │           ASR Service                │    │
@@ -44,7 +45,7 @@ Application complète de support de réunion tournant **en local** sur votre mac
 | 🏠 Accueil | Dashboard de présentation |
 | 🎙️ Transcription | Transcription live, renommage intervenants, contrôles enregistrement |
 | 📊 Statistiques | Temps de parole, mots clés, timeline |
-| 🤖 Compte rendu | Résumé IA, décisions, points d'action, export PDF/MD, planification |
+| 🤖 Compte rendu | Résumé IA, décisions, points d'action, export PDF/MD, Google Tasks, planification Calendar |
 | ❓ Q&A | Assistant question-réponse sur la réunion |
 
 ---
@@ -299,6 +300,19 @@ docker-compose down
 ```
 
 > Le docker-compose monte automatiquement `client_secret.json` et `token.json` pour Google Calendar.
+
+---
+
+## ✅ Google Tasks (OAuth, optionnel)
+
+Les points d'action extraits par Mistral peuvent être envoyés directement dans **Google Tasks** en un clic depuis la page Compte rendu.
+
+- Chaque action item affiche un bouton **"Ajouter à Google Tasks"**
+- La tâche est créée dans la liste "My Tasks" de l'utilisateur connecté
+- L'assigné et la date d'échéance sont inclus si disponibles
+- Utilise la même authentification OAuth que Google Calendar (`client_secret.json`)
+
+> Nécessite d'activer **Google Tasks API** dans Google Cloud Console (même projet que Calendar).
 
 ---
 
