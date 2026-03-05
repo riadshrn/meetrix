@@ -30,10 +30,19 @@ except ImportError:
     FASTER_WHISPER_AVAILABLE = False
     logger.warning("faster-whisper non disponible — mode stub activé")
 
+# ── Groq ──────────────────────────────────────────────────────────────────────
+import os as _os
+GROQ_API_KEY = _os.environ.get("GROQ_API_KEY", "")
+try:
+    from groq import Groq as _GroqClient
+    GROQ_AVAILABLE = bool(GROQ_API_KEY)
+except ImportError:
+    GROQ_AVAILABLE = False
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 SAMPLE_RATE        = 16000
 CHUNK_DURATION     = 0.5
-ACCUMULATE_SECONDS = 0.8    # flush toutes les 0.8s pour réduire la latence
+ACCUMULATE_SECONDS = 4.0    # Groq free tier = 20 RPM max → 1 req/3s min, on prend 4s de marge
 PARTIAL_INTERVAL   = 0.8
 MODEL_SIZE         = "medium"
 
@@ -41,7 +50,7 @@ SILENCE_RMS        = 0.004  # seuil RMS en dessous duquel = silence
 SILENCE_CHUNKS_MIN = 2      # chunks silence consécutifs → flush anticipé (~1s)
 MIN_BUFFER_SILENCE = SAMPLE_RATE * 2 * 0.6  # buffer minimum avant flush silence
 
-SPEAKER_SIMILARITY = 0.50   # seuil cosine similarity ECAPA-TDNN
+SPEAKER_SIMILARITY = 0.75   # seuil cosine similarity ECAPA-TDNN
 MAX_SPEAKERS       = 20
 
 # ── Diariseur ECAPA-TDNN (speechbrain) ───────────────────────────────────────
@@ -57,9 +66,19 @@ try:
     def _patched_hf_download(*args, **kwargs):
         if "use_auth_token" in kwargs:
             kwargs["token"] = kwargs.pop("use_auth_token")
-        return _orig_hf_download(*args, **kwargs)
+        try:
+            return _orig_hf_download(*args, **kwargs)
+        except Exception as e:
+            # speechbrain 0.5.x attend ValueError/EnvironmentError pour les fichiers optionnels
+            # (ex: custom.py 404) — huggingface_hub moderne lève HTTPError, on convertit
+            if "404" in str(e) or "Entry Not Found" in str(e) or "not found" in str(e).lower():
+                raise ValueError(str(e)) from e
+            raise
     huggingface_hub.hf_hub_download = _patched_hf_download
-    from speechbrain.pretrained import EncoderClassifier
+    try:
+        from speechbrain.inference.classifiers import EncoderClassifier
+    except ImportError:
+        from speechbrain.pretrained import EncoderClassifier
     SPEECHBRAIN_AVAILABLE = True
 except ImportError:
     SPEECHBRAIN_AVAILABLE = False
@@ -76,17 +95,24 @@ class EcapaDiarizer:
         self._speakers: list[tuple[str, np.ndarray]] = []
         self._counter  = 1
         self._model    = None
+        self._model_ready = False
         if SPEECHBRAIN_AVAILABLE:
-            try:
-                logger.info("Chargement ECAPA-TDNN...")
-                self._model = EncoderClassifier.from_hparams(
-                    source="speechbrain/spkrec-ecapa-voxceleb",
-                    run_opts={"device": "cpu"},
-                )
-                logger.info("ECAPA-TDNN chargé.")
-            except Exception as e:
-                logger.warning(f"ECAPA-TDNN échec: {e} — fallback numpy")
-                self._model = None
+            import threading
+            threading.Thread(target=self._load_model, daemon=True).start()
+
+    def _load_model(self):
+        try:
+            logger.info("Chargement ECAPA-TDNN (arrière-plan)...")
+            self._model = EncoderClassifier.from_hparams(
+                source="speechbrain/spkrec-ecapa-voxceleb",
+                run_opts={"device": "cpu"},
+            )
+            self._model_ready = True
+            logger.info("ECAPA-TDNN chargé.")
+        except Exception as e:
+            logger.warning(f"ECAPA-TDNN échec: {e} — fallback numpy")
+            self._model = None
+            self._model_ready = True
 
     def reset(self):
         self._speakers.clear()
@@ -178,10 +204,78 @@ _HALLUCINATION_PATTERNS = [
     "traduit par", "abonnez-vous", "n'oubliez pas de liker",
     "musique", "♪", "[musique]", "[music]", "(musique)", "(music)",
 ]
+# Segments exacts que Whisper hallucine souvent pendant les silences
+_HALLUCINATION_EXACT = {
+    "merci.", "merci", "merci !", "merci!", "au revoir.", "au revoir",
+    "bonne journée.", "bonne journée", "...", "…", ".", "ok.", "ok",
+    "oui.", "oui", "non.", "non",
+}
 
 def _is_hallucination(text: str) -> bool:
     lower = text.lower().strip()
+    if lower in _HALLUCINATION_EXACT:
+        return True
     return any(p in lower for p in _HALLUCINATION_PATTERNS)
+
+
+# ── Groq ASR (Whisper large-v3 via API) ──────────────────────────────────────
+class GroqASR:
+    def __init__(self):
+        self._client = _GroqClient(api_key=GROQ_API_KEY)
+        logger.info("GroqASR initialisé (whisper-large-v3-turbo)")
+
+    async def transcribe_chunk(self, audio_bytes: bytes, start_time: float) -> List[TranscriptSegment]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_transcribe, audio_bytes, start_time)
+
+    def _sync_transcribe(self, audio_bytes: bytes, start_time: float) -> List[TranscriptSegment]:
+        try:
+            import io, wave
+            # Groq attend un fichier audio — on envoie un WAV en mémoire
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # int16
+                wf.setframerate(SAMPLE_RATE)
+                wf.writeframes(audio_bytes)
+            buf.seek(0)
+            buf.name = "audio.wav"
+
+            response = self._client.audio.transcriptions.create(
+                file=buf,
+                model="whisper-large-v3-turbo",
+                language="fr",
+                response_format="verbose_json",
+                timestamp_granularities=["segment"],
+            )
+
+            # Groq renvoie des dicts ou des objets selon la version du SDK
+            raw_segs = response.segments or []
+            result = []
+            for seg in raw_segs:
+                if isinstance(seg, dict):
+                    text = (seg.get("text") or "").strip()
+                    seg_start = seg.get("start", 0)
+                    seg_end   = seg.get("end", seg_start)
+                else:
+                    text = (seg.text or "").strip()
+                    seg_start = seg.start
+                    seg_end   = seg.end
+                if not text or _is_hallucination(text):
+                    continue
+                result.append(TranscriptSegment(
+                    id=str(uuid.uuid4()),
+                    start=start_time + seg_start,
+                    end=start_time + seg_end,
+                    speaker="__DIARIZE__",
+                    text=text,
+                    confidence=1.0,
+                    is_partial=False,
+                ))
+            return result
+        except Exception as e:
+            logger.error(f"[Groq] Erreur transcription: {e}")
+            return []
 
 
 # ── Stub ASR ──────────────────────────────────────────────────────────────────
@@ -248,7 +342,15 @@ class WhisperASR:
 # ── Streaming ASR Manager ─────────────────────────────────────────────────────
 class StreamingASRService:
     def __init__(self):
-        self._asr      = WhisperASR() if FASTER_WHISPER_AVAILABLE else StubASR()
+        if GROQ_AVAILABLE:
+            self._asr = GroqASR()
+            logger.info("ASR backend: Groq (whisper-large-v3-turbo)")
+        elif FASTER_WHISPER_AVAILABLE:
+            self._asr = WhisperASR()
+            logger.info(f"ASR backend: faster-whisper ({MODEL_SIZE})")
+        else:
+            self._asr = StubASR()
+            logger.info("ASR backend: stub")
         self._diarizer = EcapaDiarizer()
 
         self._buffer:            bytearray = bytearray()

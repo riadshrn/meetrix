@@ -99,13 +99,15 @@ class MeetingState(BaseModel):
     is_recording: bool = False
     total_duration: float = 0.0
 
-    def full_transcript(self) -> str:
+    def full_transcript(self, speaker_mapping: dict | None = None) -> str:
         """Retourne la transcription complète sous forme de texte."""
+        mapping = speaker_mapping or {}
         lines = []
         for seg in self.segments:
             if not seg.is_partial:
                 ts = f"[{seg.start:.1f}s]"
-                lines.append(f"{ts} {seg.speaker}: {seg.text}")
+                name = mapping.get(seg.speaker, seg.speaker)
+                lines.append(f"{ts} {name}: {seg.text}")
         return "\n".join(lines)
 
 

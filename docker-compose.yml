@@ -13,6 +13,7 @@ services:
       - "8000:8000"
     environment:
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
       - PYTHONPATH=/app
     volumes:
       - ./exports:/app/exports

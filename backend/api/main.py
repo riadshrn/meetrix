@@ -17,6 +17,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from backend.models.meeting import (
     CalendarEventRequest, CreateTaskRequest, MeetingReport, MomentType,
@@ -150,15 +151,19 @@ def get_state():
     return {"state": manager.get_state_dict()}
 
 
+class ReportRequest(BaseModel):
+    speaker_mapping: Optional[dict] = None
+
 @app.post("/report")
-async def generate_report():
+async def generate_report(req: Optional[ReportRequest] = None):
     global _last_report
     manager = get_meeting_manager()
     if not manager.state:
         raise HTTPException(404, "Aucune réunion disponible.")
     _inject_demo_segments()
     llm = get_llm_service()
-    report = await llm.generate_full_report(manager.state)
+    mapping = (req.speaker_mapping or {}) if req else {}
+    report = await llm.generate_full_report(manager.state, speaker_mapping=mapping)
     _last_report = report
     db_save(report)
     return {"report": report.model_dump()}

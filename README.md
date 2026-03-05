@@ -1,341 +1,204 @@
 # Meetrix
 
-> Transcription temps réel • Analyse IA Mistral • Compte-rendu automatique • Google Calendar
+> Transcription temps réel · Diarisation ECAPA-TDNN · Analyse IA Mistral · Compte-rendu automatique · Extension Chrome Google Meet
 
-Application complète de support de réunion tournant **en local** sur votre PC. Aucun bot ne rejoint Google Meet — vous capturez l'audio via votre micro ou un micro virtuel.
+Application complète de support de réunion tournant **en local** sur votre machine. Aucun bot ne rejoint Google Meet — vous capturez l'audio via une extension Chrome et/ou un micro virtuel.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      NAVIGATEUR / STREAMLIT                      │
-│  Page 1: Transcription  │ Page 2: Stats │ Page 3: Rapport       │
-│  Page 4: Q&A            │ Page 5: Calendar                      │
-└────────────────┬──────────────────────────┬────────────────────┘
-                 │ HTTP REST                │ WebSocket /ws/audio
-                 ▼                          ▼
-┌────────────────────────────────────────────────────────────────┐
-│                     FASTAPI BACKEND                             │
-│  /start  /stop  /report  /qa  /state  /calendar                │
-│                                                                  │
-│  ┌─────────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  MeetingManager  │  │  ASR Service │  │   LLM Service    │  │
-│  │  (orchestrateur) │  │ faster-whis- │  │   (Mistral API)  │  │
-│  │                  │  │ per streaming│  │                  │  │
-│  └─────────────────┘  └──────────────┘  └──────────────────┘  │
-│  ┌─────────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  Stats Service   │  │Export Service│  │ Calendar Service │  │
-│  │ (speaker/kw/km) │  │  (MD + PDF)  │  │  (Google OAuth)  │  │
-│  └─────────────────┘  └──────────────┘  └──────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
-         │ audio chunks (PCM 16kHz)
-         ▼
-┌────────────────────┐
-│   MICRO / SYSTÈME  │
-│  sounddevice       │
-│  (ou micro virtuel)│
-└────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     CHROME EXTENSION (MV3)                        │
+│  tabCapture → offscreen.js → WebSocket /ws/audio                  │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │ PCM int16 16kHz mono (WebSocket)
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       FASTAPI BACKEND                             │
+│  /start  /stop  /flush  /reset  /state  /report  /qa             │
+│                                                                    │
+│  ┌────────────────┐  ┌──────────────────────────────────────┐    │
+│  │ MeetingManager │  │           ASR Service                │    │
+│  │ (orchestrateur)│  │  Groq Whisper large-v3-turbo (STT)   │    │
+│  │                │  │  ECAPA-TDNN speechbrain (diarisation)│    │
+│  └────────────────┘  └──────────────────────────────────────┘    │
+│  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────┐   │
+│  │   LLM Service  │  │  Stats Service  │  │  Export Service  │   │
+│  │  (Mistral API) │  │ (speaker/kw)    │  │   (MD + PDF)     │   │
+│  └────────────────┘  └─────────────────┘  └──────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+                           │ HTTP REST
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    STREAMLIT FRONTEND                              │
+│  Accueil · Transcription · Statistiques · Compte rendu · Q&A      │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### Modules principaux
+### Pages
 
-| Module | Rôle |
-|--------|------|
-| `backend/api/main.py` | FastAPI app, WebSocket, endpoints REST |
-| `backend/models/meeting.py` | Modèles Pydantic (TranscriptSegment, MeetingState...) |
-| `backend/services/asr_service.py` | ASR streaming avec faster-whisper |
-| `backend/services/llm_service.py` | Mistral API (résumé, action items, Q&A) |
-| `backend/services/stats_service.py` | Temps de parole, mots clés, moments clés |
-| `backend/services/meeting_manager.py` | Orchestrateur central |
-| `backend/services/export_service.py` | Export Markdown + PDF |
-| `backend/services/calendar_service.py` | Google Calendar OAuth |
-| `frontend/pages/1_transcription.py` | UI transcription live |
-| `frontend/pages/2_stats.py` | Graphiques (bar, mots, timeline) |
-| `frontend/pages/3_Compte_rendu.py` | Compte rendu IA, historique, Google Tasks |
-| `frontend/pages/4_qa.py` | Assistant Q&A chat |
-| `frontend/pages/5_calendar.py` | Création événement Calendar |
+| Page | Rôle |
+|------|------|
+| 🏠 Accueil | Dashboard de présentation |
+| 🎙️ Transcription | Transcription live, renommage intervenants, contrôles enregistrement |
+| 📊 Statistiques | Temps de parole, mots clés, timeline |
+| 🤖 Compte rendu | Résumé IA, décisions, points d'action, export PDF/MD, planification |
+| ❓ Q&A | Assistant question-réponse sur la réunion |
 
 ---
 
 ## 📁 Structure du repo
 
 ```
-meeting-ai-assistant/
+meetrix/
 ├── backend/
-│   ├── __init__.py
 │   ├── api/
-│   │   ├── __init__.py
-│   │   └── main.py              # FastAPI + WebSocket
+│   │   └── main.py              # FastAPI + WebSocket /ws/audio
 │   ├── models/
-│   │   ├── __init__.py
 │   │   └── meeting.py           # Pydantic models
 │   └── services/
-│       ├── __init__.py
-│       ├── asr_service.py       # faster-whisper streaming
-│       ├── llm_service.py       # Mistral AI (3 prompts)
-│       ├── stats_service.py     # Speaker stats, keywords
+│       ├── asr_service.py       # STT Groq Whisper + diarisation ECAPA-TDNN
+│       ├── llm_service.py       # Mistral AI (résumé, actions, Q&A)
+│       ├── stats_service.py     # Speaker stats, mots-clés
 │       ├── meeting_manager.py   # Orchestrateur
-│       ├── export_service.py    # MD + PDF
-│       └── calendar_service.py  # Google Calendar
+│       └── export_service.py    # MD + PDF
 ├── frontend/
-│   ├── app.py                   # Streamlit home
+│   ├── app.py                   # Streamlit home + navigation
 │   ├── assets/                  # Logos et ressources statiques
 │   └── pages/
 │       ├── 1_transcription.py   # Live transcription + audio
 │       ├── 2_stats.py           # Graphiques
-│       ├── 3_Compte_rendu.py    # Compte rendu IA + Google Tasks
-│       ├── 4_qa.py              # Q&A chatbot
-│       └── 5_calendar.py        # Google Calendar
-├── docker/
-│   ├── Dockerfile.backend
-│   ├── Dockerfile.frontend
-│   └── docker-compose.yml
-├── scripts/
-│   └── start.sh                 # Script lancement local
-├── exports/                     # Rapports générés (MD + PDF)
+│       ├── 3_Compte_rendu.py    # Compte rendu IA
+│       └── 4_qa.py              # Q&A chatbot
+├── chrome-extension/
+│   ├── manifest.json            # MV3
+│   ├── background.js            # tabCapture + offscreen lifecycle
+│   ├── offscreen.js             # Capture audio + resampling 16kHz + WebSocket
+│   ├── sidepanel.js             # UI panneau latéral
+│   ├── sidepanel.html
+│   └── offscreen.html
+├── pretrained_models/           # Modèle ECAPA-TDNN (téléchargé au 1er lancement)
 ├── requirements.txt
-├── .env.example
+├── .env                         # Variables d'environnement (non commité)
 └── README.md
 ```
 
 ---
 
-## 🚀 Démarrage rapide (local)
+## 🚀 Installation
 
 ### 1. Prérequis
 
-```bash
-Python 3.11+
-ffmpeg  # pour faster-whisper
-```
+- Python 3.11+
+- macOS / Windows / Linux
+- Clés API Groq et Mistral (voir section Variables d'environnement)
 
-**Ubuntu/Debian :**
-```bash
-sudo apt install ffmpeg
-```
-
-**macOS :**
-```bash
-brew install ffmpeg
-```
-
-**Windows :**
-```
-Télécharger ffmpeg depuis https://ffmpeg.org/download.html
-Ajouter au PATH système
-```
-
-### 2. Installation
+### 2. Cloner et installer
 
 ```bash
-# Cloner le projet
 git clone <repo>
-cd meeting-ai-assistant
+cd meetrix
 
-# Environnement virtuel (recommandé)
+# Créer l'environnement virtuel
 python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# venv\Scripts\activate   # Windows
+source venv/bin/activate       # macOS/Linux
+# venv\Scripts\activate        # Windows
 
-# Installation dépendances
+# Installer les dépendances
 pip install -r requirements.txt
 ```
 
-### 3. Configuration MISTRAL_API_KEY
+> **Note macOS** : si l'installation de `torchaudio` échoue, installez d'abord `torch` :
+> ```bash
+> pip install torch==2.2.2 torchaudio==2.2.2
+> pip install -r requirements.txt
+> ```
 
+### 3. Configurer les clés API
+
+Créer un fichier `.env` à la racine :
+
+```env
+MISTRAL_API_KEY=sk-...       # https://console.mistral.ai/
+GROQ_API_KEY=gsk_...         # https://console.groq.com/ (gratuit)
+LOG_LEVEL=INFO
+```
+
+- **Groq** : transcription Whisper large-v3-turbo (~500ms de latence, gratuit jusqu'à 20 req/min)
+- **Mistral** : génération des comptes rendus, résumés et réponses Q&A
+
+### 4. Lancer
+
+**Terminal 1 — Backend :**
 ```bash
-cp .env.example .env
-nano .env  # ou votre éditeur préféré
+source venv/bin/activate
+set -a && source .env && set +a        # charge les variables d'env
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-Dans `.env` :
-```
-MISTRAL_API_KEY=sk-...votre-clé-mistral...
-```
+> Au premier lancement, le modèle ECAPA-TDNN (~150 Mo) est téléchargé depuis HuggingFace dans `pretrained_models/`. Ce téléchargement se fait en arrière-plan — le serveur répond immédiatement, la diarisation démarre dès que le modèle est prêt.
 
-Obtenez votre clé sur https://console.mistral.ai/
-
-### 4. Lancement
-
-**Option A — Script automatique :**
+**Terminal 2 — Frontend :**
 ```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
-```
-
-**Option B — Manuel :**
-```bash
-# Terminal 1 : Backend
-export MISTRAL_API_KEY=sk-...
-uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Terminal 2 : Frontend
+source venv/bin/activate
 streamlit run frontend/app.py --server.port 8501
 ```
 
 **Accès :**
-- 🌐 Frontend Streamlit : http://localhost:8501
-- 📚 API Docs (Swagger) : http://localhost:8000/docs
-- 🔌 WebSocket test : http://localhost:8000/health
+- 🌐 Interface : http://localhost:8501
+- 📚 API Docs : http://localhost:8000/docs
 
 ---
 
-## 🐳 Docker
+## 🔌 Extension Chrome
 
-```bash
-# Créer le .env avec votre clé
-cp .env.example .env
-echo "MISTRAL_API_KEY=sk-..." >> .env
+L'extension capture l'audio de l'onglet Google Meet directement dans le navigateur et l'envoie au backend via WebSocket.
 
-# Lancer avec docker-compose
-cd docker
-docker-compose up --build
+### Installation
 
-# Ou en arrière-plan
-docker-compose up -d --build
-```
+1. Ouvrir Chrome → `chrome://extensions/`
+2. Activer le **Mode développeur** (coin supérieur droit)
+3. Cliquer **Charger l'extension non empaquetée**
+4. Sélectionner le dossier `chrome-extension/`
 
-**Logs :**
-```bash
-docker-compose logs -f backend
-docker-compose logs -f frontend
-```
+### Utilisation
 
-**Arrêt :**
-```bash
-docker-compose down
-```
+1. Rejoindre une réunion Google Meet
+2. Cliquer sur l'icône Meetrix dans la barre d'extensions
+3. Dans le panneau latéral, configurer l'URL backend (`http://localhost:8000`)
+4. Cliquer **▶ Démarrer** dans la page Transcription de Streamlit
+5. Cliquer **▶ Lancer la capture** dans le panneau Chrome
+
+> L'extension utilise `tabCapture` (MV3) — le streamId est généré au clic sur l'icône et expire après 25 secondes.
 
 ---
 
-## 📅 Activer Google Calendar & Google Tasks (OAuth)
+## 🎤 Micro virtuel (alternative à l'extension Chrome)
 
-Ces deux intégrations partagent les mêmes credentials OAuth. Les étapes suivantes les activent toutes les deux.
-
-### Étapes
-
-1. Allez sur https://console.cloud.google.com/
-2. Créez un projet (ou sélectionnez un existant)
-3. Activez les deux APIs dans **APIs & Services → Library** :
-   - **Google Calendar API**
-   - **Google Tasks API**
-4. Créez des credentials OAuth 2.0 :
-   - APIs & Services → Credentials → Create Credentials → OAuth client ID
-   - Type : **Desktop application**
-   - Téléchargez le JSON
-5. Renommez-le `client_secret.json` et copiez-le à la **racine du projet**
-6. Installez les dépendances :
-   ```bash
-   pip install google-api-python-client google-auth-oauthlib
-   ```
-7. L'application est en mode **Test** par défaut — ajoutez votre compte Gmail comme testeur :
-   - APIs & Services → **OAuth consent screen** → **Audience** → **Test users** → Add users
-8. Supprimez `token.json` si il existe déjà (pour forcer la ré-authentification avec les nouveaux scopes)
-9. Au prochain lancement, un navigateur s'ouvrira pour l'autorisation
-10. Le token est sauvegardé dans `token.json` (renouvellement automatique)
-
-> ⚠️ Ne committez jamais `client_secret.json` ni `token.json` (déjà dans le `.gitignore`)
-
----
-
-## 🎤 Micro virtuel (pour capturer Google Meet)
-
-### Windows — VB-Audio Virtual Cable
-
-**1. Installation et configuration de la capture**
-
-```
-1. Télécharger : https://vb-audio.com/Cable/
-2. Installer et redémarrer
-3. Dans Google Meet → Paramètres → Sortie audio → "CABLE Input (VB-Audio Virtual Cable)"
-   (Meet envoie ainsi son audio dans le câble virtuel)
-4. Dans Meetrix → sélectionner votre micro physique dans "🎙️ Mon Micro"
-   (CABLE Output est détecté automatiquement comme source Meet)
-```
-
-**2. Monitoring — Pour entendre la réunion dans vos écouteurs**
-
-Par défaut, router la sortie audio vers CABLE Input coupe le son dans vos écouteurs.
-Pour continuer à entendre la réunion tout en capturant l'audio :
-
-```
-1. Ouvrir : Paramètres de son → Panneau de configuration Son → onglet Enregistrement
-2. Clic droit sur "CABLE Output" → Propriétés → onglet Écouter
-3. Cocher "Écouter ce périphérique"
-4. Dans "Lire sur ce périphérique", sélectionner votre casque ou vos enceintes
-5. Valider → vous entendez à nouveau la réunion, et Meetrix capture toujours l'audio
-```
+Pour capturer l'audio de Google Meet sans l'extension, utilisez un câble audio virtuel.
 
 ### macOS — BlackHole
 
 ```bash
 brew install blackhole-2ch
 ```
-```
-1. Ouvrir "Audio MIDI Setup" (Applications → Utilitaires)
-2. Créer un "Aggregate Device" avec BlackHole + votre micro
-3. Créer un "Multi-Output Device" avec BlackHole + vos haut-parleurs
-4. Dans Meet → Sortie audio = Multi-Output
-5. Dans Meeting AI → Micro = BlackHole
-```
 
-### Linux — PulseAudio
+1. Ouvrir **Audio MIDI Setup** (Applications → Utilitaires)
+2. Créer un **Aggregate Device** : BlackHole 2ch + votre micro physique
+3. Créer un **Multi-Output Device** : BlackHole 2ch + vos haut-parleurs/casque
+4. Dans Google Meet → Paramètres → Sortie audio = Multi-Output Device
+5. Dans Meetrix → la source Meet "BlackHole" est détectée automatiquement
 
-```bash
-# Créer un micro virtuel
-pactl load-module module-null-sink sink_name=virtual_mic sink_properties=device.description="Virtual_Mic"
-pactl load-module module-loopback source=virtual_mic.monitor
+### Windows — VB-Audio Virtual Cable
 
-# Avec pavucontrol, router l'audio de Meet vers virtual_mic.monitor
-pavucontrol
-```
+1. Télécharger et installer : https://vb-audio.com/Cable/
+2. Dans Google Meet → Paramètres → Sortie audio = **CABLE Input (VB-Audio)**
+3. Dans Meetrix → CABLE Output est détecté automatiquement comme source Meet
 
----
-
-## 🔌 Protocole WebSocket
-
-**Client → Serveur :**
-```
-bytes bruts : PCM int16, 16kHz, mono
-JSON : {"type": "audio_base64", "data": "<base64>"}
-JSON : {"type": "command", "cmd": "ping"|"status"}
-```
-
-**Serveur → Client (WSEvent JSON) :**
-```json
-{"type": "partial_transcript", "data": {"text": "...", "start": 12.5}}
-{"type": "final_segment", "data": {"id": "...", "speaker": "...", "text": "...", ...}}
-{"type": "stats_update", "data": {"speakers": {...}, "total_duration": 45.2}}
-{"type": "llm_answer", "data": {"answer": "..."}}
-{"type": "error", "data": {"message": "..."}}
-{"type": "status", "data": {"message": "..."}}
-```
-
----
-
-## 🤖 Modèles Whisper disponibles
-
-| Modèle | RAM | Vitesse | Qualité |
-|--------|-----|---------|---------|
-| `tiny` | ~1 GB | ⚡⚡⚡ | ★★☆☆☆ |
-| `base` | ~1 GB | ⚡⚡ | ★★★☆☆ |
-| `small` | ~2 GB | ⚡ | ★★★★☆ |
-| `medium` | ~5 GB | 🐢 | ★★★★★ |
-| `large-v3` | ~10 GB | 🐢🐢 | ★★★★★ |
-
-Configurez dans `.env` :
-```
-WHISPER_MODEL=base
-WHISPER_DEVICE=cpu  # ou cuda si GPU disponible
-```
-
----
-
-## 🧪 Test sans micro
-
-L'application inclut un **mode simulation** qui génère des segments fictifs si `sounddevice` n'est pas installé ou si aucun micro n'est détecté. Idéal pour tester l'UI.
+Pour continuer à entendre la réunion dans vos écouteurs :
+- Paramètres de son → Enregistrement → CABLE Output → Propriétés → Écouter → Lire sur : votre casque
 
 ---
 
@@ -343,29 +206,122 @@ L'application inclut un **mode simulation** qui génère des segments fictifs si
 
 | Variable | Obligatoire | Description |
 |----------|-------------|-------------|
-| `MISTRAL_API_KEY` | ✅ | Clé API Mistral |
-| `BACKEND_URL` | ❌ | URL backend (défaut: http://localhost:8000) |
-| `WHISPER_MODEL` | ❌ | Modèle Whisper (défaut: base) |
-| `WHISPER_DEVICE` | ❌ | cpu ou cuda (défaut: cpu) |
+| `MISTRAL_API_KEY` | ✅ | Clé API Mistral (comptes rendus, Q&A) |
+| `GROQ_API_KEY` | ✅ | Clé API Groq (transcription Whisper) |
+| `BACKEND_URL` | ❌ | URL backend vue du frontend (défaut: http://localhost:8000) |
 | `LOG_LEVEL` | ❌ | Niveau de log (défaut: INFO) |
 
 ---
 
-## 🛠️ Développement
+## 🔄 Pipeline audio détaillé
+
+```
+Micro physique  ─┐
+                 ├─ mixage numpy → PCM int16 16kHz mono → WebSocket /ws/audio
+Source Meet     ─┘   (sounddevice streams, ou extension Chrome)
+(BlackHole/CABLE)
+                                    │
+                                    ▼
+                     Backend accumule des chunks de 0.5s
+                     Flush déclenché par :
+                       - timer toutes les 4s (limite Groq 20 RPM)
+                       - silence détecté (RMS < 0.004 sur 2 chunks)
+                                    │
+                                    ▼
+                    ┌─── Groq Whisper large-v3-turbo ───┐
+                    │  Transcription speech-to-text      │
+                    │  Langue : fr (forcé)               │
+                    │  Latence : ~500ms                  │
+                    │  Filtrage hallucinations Whisper   │
+                    └───────────────────────────────────┘
+                                    │
+                                    ▼
+                    ┌─── ECAPA-TDNN (speechbrain) ───────┐
+                    │  Diarisation : qui parle ?          │
+                    │  Embeddings voix 192-dim            │
+                    │  Cosine similarity ≥ 0.75 = même   │
+                    │  locuteur                           │
+                    │  Chargement en arrière-plan (≈30s) │
+                    └────────────────────────────────────┘
+                                    │
+                                    ▼
+                    Segment stocké (speaker, text, start, end)
+                    + affiché live dans Streamlit (refresh 2s)
+                                    │
+                                    ▼
+                    ┌─── Mistral AI ─────────────────────┐
+                    │  À la demande (page Compte rendu)  │
+                    │  - Résumé exécutif                 │
+                    │  - Décisions prises                │
+                    │  - Points d'action                 │
+                    │  - Q&A sur la réunion              │
+                    └────────────────────────────────────┘
+```
+
+---
+
+## 📦 Dépendances principales
+
+| Package | Version | Rôle |
+|---------|---------|------|
+| `fastapi` | 0.115.5 | Backend HTTP + WebSocket |
+| `uvicorn` | 0.32.1 | Serveur ASGI |
+| `groq` | latest | Transcription Whisper via Groq Cloud |
+| `faster-whisper` | 1.0.3 | Fallback ASR local (si pas de clé Groq) |
+| `speechbrain` | 0.5.16 | Modèle ECAPA-TDNN pour diarisation |
+| `torch` | 2.2.2 | Inférence ECAPA-TDNN |
+| `torchaudio` | 2.2.2 | Traitement audio PyTorch |
+| `streamlit` | 1.40.0 | Interface web |
+| `mistralai` | latest | LLM pour comptes rendus |
+| `reportlab` | 4.2.5 | Export PDF |
+
+---
+
+## 🐳 Docker
 
 ```bash
-# Linter
-pip install ruff
-ruff check backend/ frontend/
+# Créer le .env avec vos clés
+cp .env.example .env  # ou créer manuellement
 
-# Tests rapides API
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/start -H "Content-Type: application/json" \
-     -d '{"title": "Test meeting"}'
+# Lancer
+docker-compose up --build
+
+# En arrière-plan
+docker-compose up -d --build
+
+# Logs
+docker-compose logs -f backend
+docker-compose logs -f frontend
+
+# Arrêt
+docker-compose down
 ```
+
+> Le docker-compose monte automatiquement `client_secret.json` et `token.json` pour Google Calendar.
+
+---
+
+## 📅 Google Calendar (OAuth, optionnel)
+
+L'intégration Google Calendar permet de planifier la prochaine réunion depuis la page Compte rendu.
+
+1. Aller sur https://console.cloud.google.com/
+2. Créer un projet → **APIs & Services → Library** → activer **Google Calendar API**
+3. **Credentials → Create Credentials → OAuth client ID** → type : Desktop application
+4. Télécharger le JSON → renommer en `client_secret.json` → placer à la racine du projet
+5. **OAuth consent screen → Audience → Test users** → ajouter votre adresse Gmail
+6. Au premier lancement, un navigateur s'ouvrira pour autoriser l'accès → `token.json` créé automatiquement
+
+> ⚠️ Ne jamais committer `client_secret.json` ni `token.json` (déjà dans `.gitignore`)
+
+---
+
+## 🧪 Mode Démo
+
+Cliquez sur **🎭 Démo** dans la page Transcription pour injecter des segments fictifs sans micro ni extension. Idéal pour tester l'UI et le compte rendu sans matériel audio.
 
 ---
 
 ## 📄 Licence
 
-MIT — Projet développé pour un challenge IA 24h.
+MIT — Projet développé dans le cadre d'un challenge Web Mining (M2 SISE).

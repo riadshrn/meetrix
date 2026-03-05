@@ -87,8 +87,11 @@ for k, v in {
 # ── API ──────────────────────────────────────────────────────────────────────
 def api_generate():
     try:
+        mapping = st.session_state.get("speaker_mapping", {})
         with st.spinner("Analyse en cours par Mistral AI…"):
-            r = requests.post(f"{BACKEND}/report", timeout=120)
+            r = requests.post(f"{BACKEND}/report",
+                              json={"speaker_mapping": mapping} if mapping else None,
+                              timeout=120)
         if r.status_code == 404:
             st.warning("⚠️ Aucune réunion disponible. Allez sur la page **Transcription**, démarrez une réunion, attendez quelques segments, puis arrêtez-la avant de générer le compte rendu.")
             return None
@@ -316,6 +319,9 @@ title        = report.get("title", "Réunion")
 meeting_id   = report.get("meeting_id", "")
 duration     = report.get("duration_minutes", 0)
 speakers     = api_speakers()
+# Inverser le mapping pour retrouver les stats par nom affiché
+_mapping     = st.session_state.get("speaker_mapping", {})
+_inv_mapping = {v: k for k, v in _mapping.items()}
 
 # ── HERO ─────────────────────────────────────────────────────────────────────
 st.markdown(f"""
@@ -339,7 +345,7 @@ if participants:
     with st.container(border=True):
         rows = ""
         for j, p in enumerate(participants):
-            pct = speakers.get(p, {}).get("percentage", 0)
+            pct = speakers.get(_inv_mapping.get(p, p), {}).get("percentage", 0)
             pct_str = f'<span style="font-size:0.8rem;color:#9ca3af;margin-left:8px">{round(pct)}% du temps de parole</span>' if pct > 0 else ""
             border = "" if j == len(participants) - 1 else "border-bottom:1px solid #f3f4f6"
             rows += (

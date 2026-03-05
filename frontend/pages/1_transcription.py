@@ -3,6 +3,7 @@ import queue
 import time
 import threading
 from pathlib import Path
+import streamlit.components.v1 as _components
 
 import requests
 import numpy as np
@@ -241,10 +242,10 @@ with st.sidebar:
         cable_idx = None
 
     # ── Renommer les intervenants ─────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("✏️ Intervenants")
     raw_speakers = sorted({s.get("speaker", "") for s in segments if s.get("speaker")})
     if raw_speakers:
-        st.markdown("---")
-        st.subheader("✏️ Intervenants")
         for spk in raw_speakers:
             new_name = st.text_input(spk, value=st.session_state["speaker_mapping"].get(spk, ""),
                                      placeholder=spk, key=f"rename_{spk}")
@@ -252,6 +253,8 @@ with st.sidebar:
                 st.session_state["speaker_mapping"][spk] = new_name.strip()
             elif spk in st.session_state["speaker_mapping"]:
                 del st.session_state["speaker_mapping"][spk]
+    else:
+        st.caption("Les intervenants apparaîtront ici dès que la transcription démarre.")
 
     st.markdown("---")
     n = len(segments)
@@ -366,10 +369,24 @@ with left:
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+            st.markdown('<div id="transcript-bottom"></div>', unsafe_allow_html=True)
+        _components.html("""<script>
+        const a = window.parent.document.getElementById('transcript-bottom');
+        if (a) {
+            let el = a.parentElement;
+            while (el) {
+                const s = window.parent.getComputedStyle(el);
+                if (s.overflowY === 'auto' || s.overflowY === 'scroll') {
+                    el.scrollTop = el.scrollHeight; break;
+                }
+                el = el.parentElement;
+            }
+        }
+        </script>""", height=0)
     elif st.session_state["recording"]:
         st.info("⏳ En attente du premier segment…")
     else:
-        st.caption("Cliquez sur ▶️ Lancer l'enregistrement ou 🎭 Démo pour démarrer.")
+        st.caption("Cliquez sur ▶ Démarrer ou 🎭 Démo pour commencer.")
 
 with right:
     st.subheader("📊 Statistiques")

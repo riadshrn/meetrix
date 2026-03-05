@@ -180,10 +180,11 @@ class LLMService:
         logger.info(f"Q&A Mistral: {question[:80]}")
         return await self._client._call(prompt, max_tokens=800, temperature=0.4)
 
-    async def generate_full_report(self, state: MeetingState) -> MeetingReport:
+    async def generate_full_report(self, state: MeetingState, speaker_mapping: dict | None = None) -> MeetingReport:
         """Génère le rapport complet (résumé + action items)."""
-        transcript = state.full_transcript()
-        
+        mapping = speaker_mapping or {}
+        transcript = state.full_transcript(speaker_mapping=mapping)
+
         # Appels parallèles
         import asyncio
         summary_task = self.generate_summary(transcript)
@@ -197,6 +198,10 @@ class LLMService:
         if state.ended_at:
             duration = (state.ended_at - state.started_at).total_seconds() / 60
 
+        # Appliquer le mapping aux noms de participants
+        raw_participants = list(state.speakers_stats.keys())
+        participants = [mapping.get(p, p) for p in raw_participants]
+
         return MeetingReport(
             meeting_id=state.meeting_id,
             title=state.title,
@@ -207,7 +212,7 @@ class LLMService:
             open_points=open_points,
             risks=[],
             action_items=action_items,
-            participants=list(state.speakers_stats.keys()),
+            participants=participants,
             duration_minutes=duration,
             full_transcript=transcript,
         )
