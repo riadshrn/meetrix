@@ -266,14 +266,14 @@ st.title("🎙️ Transcription Live")
 c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
 
 with c1:
-    label = "🔴 **ENREGISTREMENT EN COURS**" if st.session_state["recording"] else "⚫ **EN ATTENTE**"
-    badge = "🎙️ Lancer l'enregistrement" if st.session_state["mode"] == "real" else "🤖 Mode Démo"
+    label = "🔴 **Enregistrement en cours**" if st.session_state["recording"] else "⚫ **Prêt**"
+    badge = "🎙️ Micro" if st.session_state["mode"] == "real" else "🎭 Démo"
     st.markdown(f"{label} — {badge}")
 
 with c2:
     if not st.session_state["recording"]:
         ready = st.session_state["mic_validated"] and cable_idx is not None
-        if st.button("▶️ Lancer l'enregistrement", type="primary", use_container_width=True, disabled=not ready):
+        if st.button("▶ Démarrer", type="primary", use_container_width=True, disabled=not ready):
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "real", "error": None})

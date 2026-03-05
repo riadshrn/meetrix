@@ -103,7 +103,7 @@ def api_generate():
 
 def api_history():
     try:
-        r = requests.get(f"{BACKEND}/reports", timeout=5)
+        r = requests.get(f"{BACKEND}/reports", timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception:
@@ -112,7 +112,7 @@ def api_history():
 
 def api_delete(mid: str) -> bool:
     try:
-        requests.delete(f"{BACKEND}/reports/{mid}", timeout=5).raise_for_status()
+        requests.delete(f"{BACKEND}/reports/{mid}", timeout=15).raise_for_status()
         return True
     except Exception as e:
         st.error(f"Erreur suppression : {e}")
@@ -509,7 +509,7 @@ ec1, ec2, ec3 = st.columns(3)
 
 with ec1:
     try:
-        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=10).content
+        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=20).content
         st.download_button("Télécharger en Markdown", data=md_bytes,
                            file_name=f"rapport_{meeting_id[:8]}.md", mime="text/markdown",
                            use_container_width=True)
@@ -518,7 +518,7 @@ with ec1:
 
 with ec2:
     try:
-        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=15).content
+        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=20).content
         st.download_button("Télécharger en PDF", data=pdf_bytes,
                            file_name=f"rapport_{meeting_id[:8]}.pdf", mime="application/pdf",
                            use_container_width=True)
