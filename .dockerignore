@@ -1,0 +1,32 @@
+# Environnement Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Données et secrets
+.env
+client_secret.json
+token.json
+meetrix.db
+
+# Modèles (téléchargés au runtime via volume)
+pretrained_models/
+
+# IDE et OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs
+README.md
+*.md
+
+# Extension Chrome (non utilisée dans Docker)
+chrome-extension/

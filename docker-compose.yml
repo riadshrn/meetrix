@@ -1,4 +1,3 @@
-
 services:
 
   # ----------------------------------------------------------------
@@ -8,25 +7,28 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    container_name: meeting-backend
+    container_name: meetrix-backend
     ports:
       - "8000:8000"
     environment:
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
       - PYTHONPATH=/app
     volumes:
       - ./exports:/app/exports
-      - ./client_secret.json:/app/client_secret.json:ro
-      - ./token.json:/app/token.json
-      - whisper_cache:/root/.cache/huggingface
+      - ./meetrix.db:/app/meetrix.db
+      - pretrained_models:/app/pretrained_models
+      - huggingface_cache:/root/.cache/huggingface
+      # Google Calendar / Tasks (optionnel — décommenter si configuré)
+      # - ./client_secret.json:/app/client_secret.json:ro
+      # - ./token.json:/app/token.json
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 25s
+      start_period: 40s
 
   # ----------------------------------------------------------------
   # Frontend Streamlit
@@ -35,7 +37,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
-    container_name: meeting-frontend
+    container_name: meetrix-frontend
     ports:
       - "8501:8501"
     environment:
@@ -47,8 +49,9 @@ services:
     restart: unless-stopped
 
 volumes:
-  whisper_cache:
+  pretrained_models:
+  huggingface_cache:
 
 networks:
   default:
-    name: meeting-ai-network
+    name: meetrix-network

@@ -5,8 +5,6 @@ const MOMENT_COLORS  = { decision:'#10B981', action:'#F59E0B', question:'#3B82F6
 const MOMENT_LABELS  = { decision:'✅ Décision', action:'📌 Action', question:'❓ Question', risk:'⚠️ Risque' };
 const PRIO_LABELS    = { high:'Haute', medium:'Moyenne', low:'Faible' };
 const PRIO_CLASS     = { high:'prio-high', medium:'prio-medium', low:'prio-low' };
-const EMOTION_EMOJI  = { happy:'😄', sad:'😢', angry:'😠', fearful:'😨', disgusted:'🤢', surprised:'😲', neutral:'😐' };
-const EMOTION_COLORS = { happy:'#10b981', sad:'#3b82f6', angry:'#ef4444', fearful:'#8b5cf6', disgusted:'#f59e0b', surprised:'#ec4899', neutral:'#9ca3af' };
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -20,7 +18,6 @@ let state = {
   totalDuration: 0,
   report:       null,
   qaHistory:    [],
-  emotions:     {},
   tasksSent:    {},
   wsStatus:     'disconnected',
   pollTimer:    null,
@@ -53,7 +50,6 @@ const el = {
   qaMessages:    $('qa-messages'),
   qaInput:       $('qa-input'),
   qaSend:        $('qa-send'),
-  emotionsContent:$('emotions-content'),
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -159,9 +155,6 @@ function setupMessageListener() {
         break;
       case 'PARTIAL_SEGMENT':
         showPartial(msg.text);
-        break;
-      case 'EMOTIONS_UPDATE':
-        updateEmotions(msg.emotions);
         break;
     }
   });
@@ -747,46 +740,6 @@ function updateBubble(id, content) {
   if (el2) { el2.innerHTML = content; el.qaMessages.scrollTop = el.qaMessages.scrollHeight; }
 }
 
-// ── Emotions ──────────────────────────────────────────────────────────────────
-
-function updateEmotions(emotions) {
-  if (!emotions || !emotions.length) return;
-
-  emotions.forEach(p => { state.emotions[p.id] = p; });
-
-  const grid = document.createElement('div');
-  grid.className = 'emotions-grid';
-
-  Object.values(state.emotions).forEach(p => {
-    const emoji = EMOTION_EMOJI[p.dominant] || '😐';
-    const scores = p.scores || {};
-    const bars = Object.entries(scores)
-      .sort((a,b) => b[1] - a[1])
-      .map(([emo, pct]) => `
-        <div class="emo-row">
-          <span class="emo-label">${EMOTION_EMOJI[emo]||''} ${emo}</span>
-          <div class="emo-bar">
-            <div class="emo-fill" style="width:${pct}%;background:${EMOTION_COLORS[emo]||'#9ca3af'}"></div>
-          </div>
-          <span class="emo-pct">${pct}%</span>
-        </div>`).join('');
-
-    grid.innerHTML += `
-      <div class="emotion-card">
-        <div class="emotion-header">
-          <span class="emotion-emoji">${emoji}</span>
-          <div>
-            <div class="emotion-name">${esc(p.label || p.id)}</div>
-            <div class="emotion-dominant">${p.dominant} (${p.score}%)</div>
-          </div>
-        </div>
-        <div class="emotion-bars">${bars}</div>
-      </div>`;
-  });
-
-  el.emotionsContent.innerHTML = '';
-  el.emotionsContent.appendChild(grid);
-}
 
 // ── Error display ─────────────────────────────────────────────────────────────
 

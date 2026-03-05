@@ -104,8 +104,10 @@ meetrix/
 ### 1. Prérequis
 
 - Python 3.11+
+- Git
 - macOS / Windows / Linux
 - Clés API Groq et Mistral (voir section Variables d'environnement)
+- Docker Desktop (uniquement pour le lancement via Docker) : https://www.docker.com/products/docker-desktop/
 
 ### 2. Cloner et installer
 
@@ -143,20 +145,42 @@ LOG_LEVEL=INFO
 
 ### 4. Lancer
 
-**Terminal 1 — Backend :**
+**macOS / Linux**
+
+Terminal 1 — Backend :
 ```bash
 source venv/bin/activate
-set -a && source .env && set +a        # charge les variables d'env
 uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-> Au premier lancement, le modèle ECAPA-TDNN (~150 Mo) est téléchargé depuis HuggingFace dans `pretrained_models/`. Ce téléchargement se fait en arrière-plan — le serveur répond immédiatement, la diarisation démarre dès que le modèle est prêt.
-
-**Terminal 2 — Frontend :**
+Terminal 2 — Frontend :
 ```bash
 source venv/bin/activate
 streamlit run frontend/app.py --server.port 8501
 ```
+
+**Windows (PowerShell)**
+
+Terminal 1 — Backend :
+```powershell
+venv\Scripts\Activate.ps1
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Terminal 2 — Frontend :
+```powershell
+venv\Scripts\Activate.ps1
+streamlit run frontend/app.py --server.port 8501
+```
+
+> **Note Windows PowerShell** : si l'exécution de scripts est bloquée, lancer d'abord :
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
+> Le backend charge automatiquement le fichier `.env` au démarrage — aucune commande d'export manuelle n'est nécessaire.
+
+> Au premier lancement, le modèle ECAPA-TDNN (~150 Mo) est téléchargé depuis HuggingFace dans `pretrained_models/`. Ce téléchargement se fait en arrière-plan — le serveur répond immédiatement, la diarisation démarre dès que le modèle est prêt.
 
 **Accès :**
 - 🌐 Interface : http://localhost:8501
@@ -165,6 +189,8 @@ streamlit run frontend/app.py --server.port 8501
 ---
 
 ## 🔌 Extension Chrome
+
+> Prérequis : **Google Chrome** — https://www.google.com/chrome/
 
 L'extension capture l'audio de l'onglet Google Meet directement dans le navigateur et l'envoie au backend via WebSocket.
 
@@ -210,7 +236,12 @@ brew install blackhole-2ch
 3. Dans Meetrix → CABLE Output est détecté automatiquement comme source Meet
 
 Pour continuer à entendre la réunion dans vos écouteurs :
-- Paramètres de son → Enregistrement → CABLE Output → Propriétés → Écouter → Lire sur : votre casque
+1. Clic droit sur l'icône son (barre des tâches) → **Paramètres du son** (ou **Sons**)
+2. Onglet **Enregistrement** — repère le périphérique **CABLE Output (VB-Audio Virtual Cable)**
+3. Clic droit sur **CABLE Output** → **Propriétés**
+4. Onglet **Écouter** → cocher **Écouter ce périphérique**
+5. Menu déroulant **Lire sur ce périphérique** → sélectionner ton casque / tes haut-parleurs
+6. **Appliquer** → OK
 
 ---
 
@@ -279,11 +310,11 @@ Source Meet     ─┘   (sounddevice streams, ou extension Chrome)
 | `fastapi` | 0.115.5 | Backend HTTP + WebSocket |
 | `uvicorn` | 0.32.1 | Serveur ASGI |
 | `httpx` | 0.27.2 | Appels API Groq (ASR) et Mistral (LLM) |
-| `groq` | latest | SDK Groq — Whisper large-v3-turbo |
+| `groq` | 1.0.0 | SDK Groq — Whisper large-v3-turbo |
 | `faster-whisper` | 1.0.3 | Fallback ASR local (si pas de clé Groq) |
-| `speechbrain` | 0.5.16 | Modèle ECAPA-TDNN pour diarisation |
-| `torch` | 2.2.2 | Inférence ECAPA-TDNN |
-| `torchaudio` | 2.2.2 | Traitement audio PyTorch |
+| `speechbrain` | 1.0.3 | Modèle ECAPA-TDNN pour diarisation |
+| `torch` | 2.10.0 | Inférence ECAPA-TDNN |
+| `torchaudio` | 2.10.0 | Traitement audio PyTorch |
 | `sounddevice` | 0.5.1 | Capture micro + CABLE virtuel |
 | `streamlit` | 1.40.0 | Interface web |
 | `reportlab` | 4.2.5 | Export PDF |
@@ -292,25 +323,69 @@ Source Meet     ─┘   (sounddevice streams, ou extension Chrome)
 
 ## 🐳 Docker
 
+> Prérequis : **Docker Desktop** installé et démarré — https://www.docker.com/products/docker-desktop/
+
+C'est la méthode recommandée pour lancer l'application sans installer Python ni les dépendances manuellement.
+
+### Lancement rapide
+
+**1. Créer le fichier `.env` avec vos clés API :**
+
 ```bash
-# Créer le .env avec vos clés
-cp .env.example .env  # ou créer manuellement
+cp .env.example .env          # macOS/Linux
+copy .env.example .env        # Windows CMD
+Copy-Item .env.example .env   # Windows PowerShell
+```
 
-# Lancer
+Puis éditer `.env` et renseigner `GROQ_API_KEY` et `MISTRAL_API_KEY`.
+
+**2. Lancer :**
+
+```bash
 docker-compose up --build
+```
 
+> Le premier build télécharge torch (~500 Mo) et les dépendances — prévoir 5 à 10 minutes.
+> Le modèle ECAPA-TDNN (~150 Mo) est téléchargé au premier démarrage du backend et mis en cache dans un volume Docker.
+
+**3. Accéder à l'application :**
+- 🌐 Interface Streamlit : http://localhost:8501
+- 📚 API Docs : http://localhost:8000/docs
+
+### Autres commandes utiles
+
+```bash
 # En arrière-plan
 docker-compose up -d --build
 
-# Logs
+# Logs en temps réel
 docker-compose logs -f backend
 docker-compose logs -f frontend
 
 # Arrêt
 docker-compose down
+
+# Arrêt + suppression des volumes (repart de zéro)
+docker-compose down -v
 ```
 
-> Le docker-compose monte automatiquement `client_secret.json` et `token.json` pour Google Calendar.
+### Google Calendar / Tasks (optionnel)
+
+Sans `client_secret.json`, l'application fonctionne entièrement **sauf** deux boutons de la page Compte rendu :
+- ❌ "Planifier la prochaine réunion" (Google Calendar)
+- ❌ "Ajouter à Google Tasks"
+
+Pour les activer dans Docker :
+
+1. Suivre la section [Google Calendar (OAuth)](#-google-calendar-oauth-optionnel) pour obtenir `client_secret.json`
+2. Décommenter les lignes suivantes dans `docker-compose.yml` :
+
+```yaml
+- ./client_secret.json:/app/client_secret.json:ro
+- ./token.json:/app/token.json
+```
+
+> ⚠️ Ne monter ces fichiers que s'ils existent sur le disque — Docker créerait un dossier à la place si le fichier est absent.
 
 ---
 
@@ -332,7 +407,7 @@ Les points d'action extraits par Mistral peuvent être envoyés directement dans
 L'intégration Google Calendar permet de planifier la prochaine réunion depuis la page Compte rendu.
 
 1. Aller sur https://console.cloud.google.com/
-2. Créer un projet → **APIs & Services → Library** → activer **Google Calendar API**
+2. Créer un projet → **APIs & Services → Library** → activer **Google Calendar API** et **Google Tasks API**
 3. **Credentials → Create Credentials → OAuth client ID** → type : Desktop application
 4. Télécharger le JSON → renommer en `client_secret.json` → placer à la racine du projet
 5. **OAuth consent screen → Audience → Test users** → ajouter votre adresse Gmail

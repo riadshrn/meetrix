@@ -2,35 +2,32 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Dépendances système pour faster-whisper + audio
+# Dépendances système
 RUN apt-get update && apt-get install -y \
-    ffmpeg \
     libsndfile1 \
+    libportaudio2 \
+    ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
+# Copier les dépendances
+COPY requirements.txt .
+
+# Installer torch CPU en premier (évite de télécharger la version CUDA ~3 Go)
 RUN pip install --no-cache-dir \
-    fastapi==0.115.5 \
-    uvicorn[standard]==0.32.1 \
-    websockets==13.1 \
-    httpx==0.27.2 \
-    pydantic==2.9.2 \
-    faster-whisper==1.0.3 \
-    numpy==1.26.4 \
-    websocket-client==1.8.0 \
-    reportlab==4.2.5 \
-    python-dotenv==1.0.1 \
-    google-api-python-client==2.151.0 \
-    google-auth-httplib2==0.2.0 \
-    google-auth-oauthlib==1.2.1
+    torch==2.10.0 \
+    torchaudio==2.10.0 \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Pré-télécharger le modèle Whisper au build (évite le téléchargement au runtime)
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')"
+# Installer le reste
+RUN pip install --no-cache-dir -r requirements.txt \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Copie code source (contexte = racine du projet)
+# Créer les dossiers nécessaires
+RUN mkdir -p /app/exports /app/pretrained_models
+
+# Copier le code
 COPY backend/ ./backend/
-COPY exports/ ./exports/
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
@@ -38,4 +35,3 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 CMD ["uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-# cache-bust: 1772630155
