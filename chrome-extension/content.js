@@ -159,3 +159,29 @@ function getParticipantLabel(video, index) {
   const ok = await initFaceApi();
   if (ok) observeVideos();
 })();
+
+// ── Active speaker detection ───────────────────────────────────────────────────
+
+let _lastActiveSpeaker = null;
+
+function detectActiveSpeaker() {
+  const tiles = document.querySelectorAll('[data-participant-id]');
+  for (const tile of tiles) {
+    const isTalking = (
+      tile.getAttribute('data-is-talking') === 'true' ||
+      tile.querySelector('[data-is-talking="true"]') !== null ||
+      tile.querySelector('[data-ssrc]:not([hidden])') !== null
+    );
+    if (isTalking) {
+      const video = tile.querySelector('video');
+      const name  = getParticipantLabel(video, 0);
+      if (name && name !== _lastActiveSpeaker) {
+        _lastActiveSpeaker = name;
+        chrome.runtime.sendMessage({ action: 'ACTIVE_SPEAKER', name }).catch(() => {});
+      }
+      return;
+    }
+  }
+}
+
+setInterval(detectActiveSpeaker, 500);

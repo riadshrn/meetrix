@@ -3,9 +3,10 @@ from pathlib import Path
 
 import streamlit as st
 
-_ASSETS   = Path(__file__).parent / "assets"
-LOGO      = str(_ASSETS / "logo.png")
-LOGO_ICON = str(_ASSETS / "favicon.png")
+_ASSETS      = Path(__file__).parent / "assets"
+LOGO         = str(_ASSETS / "logo.png")
+LOGO_SIDEBAR = str(_ASSETS / "logo2.png")
+LOGO_ICON    = str(_ASSETS / "favicon.png")
 
 st.set_page_config(
     page_title="Meetrix",
@@ -14,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.logo(LOGO, icon_image=LOGO_ICON, size="large")
+st.logo(LOGO_SIDEBAR, icon_image=LOGO_ICON, size="large")
 
 
 def page_accueil():
@@ -73,7 +74,7 @@ def page_accueil():
     with c2:
         st.markdown("""<div class="feat-card">
         <div class="feat-icon">📊</div>
-        <div class="feat-title">Stats & Graphiques</div>
+        <div class="feat-title">Statistiques & Graphiques</div>
         <div class="feat-desc">Temps de parole par participant, mots clés, moments clés</div>
     </div>""", unsafe_allow_html=True)
 
@@ -98,9 +99,8 @@ def page_accueil():
 pg = st.navigation([
     st.Page(page_accueil,                   title="Accueil",                    icon="🏠"),
     st.Page("pages/1_transcription.py",     title="Transcription",              icon="🎙️"),
-    st.Page("pages/2_stats.py",             title="Stats",                      icon="📊"),
+    st.Page("pages/2_stats.py",             title="Statistiques",               icon="📊"),
     st.Page("pages/3_Compte_rendu.py",      title="Compte rendu",               icon="🤖"),
     st.Page("pages/4_qa.py",               title="Q&A",                        icon="❓"),
-    st.Page("pages/5_calendar.py",          title="Planification de réunion",   icon="📅"),
 ])
 pg.run()

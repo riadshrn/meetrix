@@ -47,6 +47,11 @@ def _get_credentials():
     creds = None
     if TOKEN_FILE.exists():
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+        # Vérifier que les scopes du token correspondent aux scopes requis
+        if creds and creds.scopes and not set(SCOPES).issubset(set(creds.scopes)):
+            logger.warning("Scopes token.json insuffisants — suppression pour re-auth")
+            TOKEN_FILE.unlink()
+            creds = None
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:

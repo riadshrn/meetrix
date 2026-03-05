@@ -7,9 +7,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-_LOGO      = str(Path(__file__).parent.parent / "assets" / "logo.png")
-_LOGO_ICON = str(Path(__file__).parent.parent / "assets" / "favicon.png")
-st.logo(_LOGO, icon_image=_LOGO_ICON, size="large")
 
 
 BACKEND = os.environ.get("BACKEND_URL", "http://localhost:8000")
