@@ -26,7 +26,11 @@ def page_accueil():
         border-radius: 12px;
         padding: 1.4rem 1rem;
         text-align: center;
-        height: 100%;
+        min-height: 180px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
         transition: box-shadow .2s;
     }
     .feat-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
@@ -68,28 +72,28 @@ def page_accueil():
         st.markdown("""<div class="feat-card">
         <div class="feat-icon">🎙️</div>
         <div class="feat-title">Transcription Live</div>
-        <div class="feat-desc">Reconnaissance vocale Whisper en temps réel, speaker diarization</div>
+        <div class="feat-desc">Whisper large-v3-turbo via Groq — transcription quasi-instantanée, diarisation automatique des intervenants</div>
     </div>""", unsafe_allow_html=True)
 
     with c2:
         st.markdown("""<div class="feat-card">
         <div class="feat-icon">📊</div>
-        <div class="feat-title">Statistiques & Graphiques</div>
-        <div class="feat-desc">Temps de parole par participant, mots clés, moments clés</div>
+        <div class="feat-title">Statistiques</div>
+        <div class="feat-desc">Temps de parole par intervenant, mots clés, moments clés et timeline de la réunion</div>
     </div>""", unsafe_allow_html=True)
 
     with c3:
         st.markdown("""<div class="feat-card">
         <div class="feat-icon">🤖</div>
         <div class="feat-title">Compte rendu IA</div>
-        <div class="feat-desc">Résumé, décisions, next steps et Q&A par Mistral AI</div>
+        <div class="feat-desc">Résumé, décisions, points d'action et planification de la prochaine réunion par Mistral AI</div>
     </div>""", unsafe_allow_html=True)
 
     with c4:
         st.markdown("""<div class="feat-card">
-        <div class="feat-icon">📅</div>
-        <div class="feat-title">Google Calendar</div>
-        <div class="feat-desc">Planification de la prochaine réunion + création Google Meet</div>
+        <div class="feat-icon">💬</div>
+        <div class="feat-title">Q&A Assistant</div>
+        <div class="feat-desc">Posez des questions sur le contenu de la réunion — réponses contextuelles par Mistral AI</div>
     </div>""", unsafe_allow_html=True)
 
     st.markdown("---")

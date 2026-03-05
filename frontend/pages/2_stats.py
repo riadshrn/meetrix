@@ -49,7 +49,7 @@ with col_auto:
 
 def fetch_state():
     try:
-        r = requests.get(f"{BACKEND}/state", timeout=5)
+        r = requests.get(f"{BACKEND}/state", timeout=15)
         r.raise_for_status()
         return r.json().get("state") or {}
     except Exception as e:

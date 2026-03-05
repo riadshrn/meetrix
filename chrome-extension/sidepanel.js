@@ -146,7 +146,12 @@ function setupMessageListener() {
     switch (msg.action) {
       case 'WS_STATUS':
         setWsStatus(msg.status);
-        if (msg.status === 'error' && msg.message) showError(`Audio: ${msg.message}`);
+        if (msg.status === 'error' && msg.message) {
+          const isStreamError = msg.message.toLowerCase().includes('tab capture') || msg.message.toLowerCase().includes('stream');
+          showError(isStreamError
+            ? '⚠️ Session terminée. Pour relancer : recliquez sur l\'icône Meetrix dans la barre Chrome, puis Démarrer.'
+            : `Audio: ${msg.message}`);
+        }
         if (msg.status === 'capturing') showError(null);
         break;
       case 'NEW_SEGMENT':
@@ -181,16 +186,18 @@ async function startRecording() {
       throw new Error(`Backend inaccessible (${backendUrl}) — Lancez start.bat d'abord.`);
     }
 
-    // 2. Obtenir un streamId frais maintenant (évite l'expiration après quelques secondes)
-    const freshResp = await chrome.runtime.sendMessage({ action: 'GET_FRESH_STREAM_ID' });
-    if (freshResp?.error) {
-      throw new Error(`Capture audio impossible : ${freshResp.error}. Assurez-vous d'être sur un onglet Google Meet.`);
+    // 2. Récupérer le streamId obtenu lors du clic sur l'icône (user gesture)
+    const stored = await chrome.storage.session.get(['pendingStreamId', 'capturedAt']);
+    if (!stored.pendingStreamId) {
+      throw new Error('⚠️ Cliquez d\'abord sur l\'icône Meetrix dans la barre Chrome depuis l\'onglet Google Meet, puis réessayez.');
     }
-    if (!freshResp?.streamId) {
-      throw new Error('⚠️ Aucun onglet Google Meet détecté. Ouvrez Meet et réessayez.');
+    // Le streamId expire après ~30s — vérifier qu'il est récent
+    const age = Date.now() - (stored.capturedAt || 0);
+    if (age > 25000) {
+      throw new Error('⚠️ Le streamId a expiré. Recliquez sur l\'icône Meetrix depuis l\'onglet Google Meet.');
     }
 
-    const streamId = freshResp.streamId;
+    const streamId = stored.pendingStreamId;
 
     // 3. Démarrer la réunion sur le backend
     const r = await fetch(`${backendUrl}/start`, {

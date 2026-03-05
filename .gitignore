@@ -63,3 +63,9 @@ temp/
 
 # Exports générés
 exports/
+
+# Modèles pré-entraînés (symlinks vers ~/.cache/huggingface, recréés automatiquement)
+pretrained_models/
+
+# Base de données locale
+*.db

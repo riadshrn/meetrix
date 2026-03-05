@@ -3,6 +3,7 @@ import queue
 import time
 import threading
 from pathlib import Path
+import streamlit.components.v1 as _components
 
 import requests
 import numpy as np
@@ -34,12 +35,18 @@ _audio_stop  = threading.Event()
 
 
 # ── Détection automatique du CABLE Output ───────────────────────────────────
+_VIRTUAL_CABLE_KEYWORDS = (
+    "cable output",   # VB-Audio CABLE (Windows)
+    "vb-audio",       # VB-Audio autres produits (Windows)
+    "blackhole",      # BlackHole (macOS)
+)
+
 def find_cable_device():
     try:
         import sounddevice as sd
         for i, d in enumerate(sd.query_devices()):
             name = d["name"].lower()
-            if d["max_input_channels"] > 0 and ("cable output" in name or "vb-audio" in name):
+            if d["max_input_channels"] > 0 and any(kw in name for kw in _VIRTUAL_CABLE_KEYWORDS):
                 return i, d["name"]
     except Exception:
         pass
@@ -141,7 +148,7 @@ def _audio_loop(mic_idx, cable_idx):
 # ── API helpers ───────────────────────────────────────────────────────────────
 def api_start(title):
     try:
-        r = requests.post(f"{BACKEND}/start", json={"title": title}, timeout=5)
+        r = requests.post(f"{BACKEND}/start", json={"title": title}, timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -156,13 +163,13 @@ def api_stop():
 
 def api_reset():
     try:
-        requests.post(f"{BACKEND}/reset", timeout=5)
+        requests.post(f"{BACKEND}/reset", timeout=15)
     except Exception:
         pass
 
 def get_state():
     try:
-        r = requests.get(f"{BACKEND}/state", timeout=5)
+        r = requests.get(f"{BACKEND}/state", timeout=15)
         r.raise_for_status()
         return r.json().get("state") or {}
     except Exception as e:
@@ -175,6 +182,12 @@ segments  = [s for s in state.get("segments", []) if not s.get("is_partial")]
 spk_stats = state.get("speakers_stats", {})
 total_dur = state.get("total_duration", 0)
 key_mom   = state.get("key_moments", [])
+
+if "speaker_mapping" not in st.session_state:
+    st.session_state["speaker_mapping"] = {}
+
+def apply_speaker_mapping(name: str) -> str:
+    return st.session_state["speaker_mapping"].get(name, name)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -200,8 +213,8 @@ with st.sidebar:
             name_low  = name.lower()
             is_input  = d["max_input_channels"] > 0
             is_output = any(kw in name_low for kw in OUTPUT_KEYWORDS)
-            is_cable  = "cable output" in name_low or "vb-audio" in name_low
-            # Garde les vrais micros, exclut les haut-parleurs ET le Cable Output (auto-détecté séparément)
+            is_cable  = any(kw in name_low for kw in _VIRTUAL_CABLE_KEYWORDS)
+            # Garde les vrais micros, exclut les haut-parleurs ET le cable virtuel (auto-détecté séparément)
             if is_input and not is_output and not is_cable and name not in seen_names:
                 seen_names[name] = i
         dev_labels = [f"{idx}: {name}" for name, idx in seen_names.items()]
@@ -222,14 +235,30 @@ with st.sidebar:
         if cable_idx is not None:
             st.success(f"✅ Source Meet : {cable_name}")
         else:
-            st.error("❌ CABLE Output (VB-Audio) non détecté.")
+            st.error("❌ Source Meet non détectée (BlackHole sur macOS, VB-Audio CABLE sur Windows).")
 
     except Exception:
         st.warning("sounddevice non disponible")
         cable_idx = None
 
+    # ── Renommer les intervenants ─────────────────────────────────────────────
     st.markdown("---")
-    st.success(f"✅ {len(segments)} segments reçus")
+    st.subheader("✏️ Intervenants")
+    raw_speakers = sorted({s.get("speaker", "") for s in segments if s.get("speaker")})
+    if raw_speakers:
+        for spk in raw_speakers:
+            new_name = st.text_input(spk, value=st.session_state["speaker_mapping"].get(spk, ""),
+                                     placeholder=spk, key=f"rename_{spk}")
+            if new_name.strip():
+                st.session_state["speaker_mapping"][spk] = new_name.strip()
+            elif spk in st.session_state["speaker_mapping"]:
+                del st.session_state["speaker_mapping"][spk]
+    else:
+        st.caption("Les intervenants apparaîtront ici dès que la transcription démarre.")
+
+    st.markdown("---")
+    n = len(segments)
+    st.success(f"✅ {n} segment{'s' if n > 1 else ''} reçu{'s' if n > 1 else ''}")
     if state.get("_error"):
         st.error(f"Backend: {state['_error']}")
 
@@ -240,14 +269,14 @@ st.title("🎙️ Transcription Live")
 c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
 
 with c1:
-    label = "🔴 **ENREGISTREMENT EN COURS**" if st.session_state["recording"] else "⚫ **EN ATTENTE**"
-    badge = "🎙️ Micro réel" if st.session_state["mode"] == "real" else "🤖 Mode Mock"
+    label = "🔴 **Enregistrement en cours**" if st.session_state["recording"] else "⚫ **Prêt**"
+    badge = "🎙️ Micro" if st.session_state["mode"] == "real" else "🎭 Démo"
     st.markdown(f"{label} — {badge}")
 
 with c2:
     if not st.session_state["recording"]:
         ready = st.session_state["mic_validated"] and cable_idx is not None
-        if st.button("▶️ Micro réel", type="primary", use_container_width=True, disabled=not ready):
+        if st.button("▶ Démarrer", type="primary", use_container_width=True, disabled=not ready):
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "real", "error": None})
@@ -264,7 +293,7 @@ with c2:
 
 with c3:
     if not st.session_state["recording"]:
-        if st.button("🤖 Mock", type="secondary", use_container_width=True):
+        if st.button("🎭 Démo", type="secondary", use_container_width=True):
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "mock", "error": None})
@@ -308,9 +337,15 @@ if st.session_state.get("error"):
 
 st.markdown("---")
 
-# ── Couleurs moments clés ─────────────────────────────────────────────────────
-COLORS = {"decision": "#10B981", "action": "#F59E0B", "question": "#3B82F6", "risk": "#EF4444"}
-EMOJIS = {"decision": "✅", "action": "📌", "question": "❓", "risk": "⚠️"}
+# ── Couleurs par locuteur ─────────────────────────────────────────────────────
+EMOJIS         = {"decision": "✅", "action": "📌", "question": "❓", "risk": "⚠️"}
+SPEAKER_COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#3b82f6", "#8b5cf6", "#ef4444", "#06b6d4"]
+
+_speaker_index: dict = {}
+def speaker_color(name: str) -> str:
+    if name not in _speaker_index:
+        _speaker_index[name] = len(_speaker_index)
+    return SPEAKER_COLORS[_speaker_index[name] % len(SPEAKER_COLORS)]
 
 left, right = st.columns([2, 1])
 
@@ -320,25 +355,41 @@ with left:
         with st.container(height=500):
             for seg in segments:
                 mt    = seg.get("moment_type")
-                color = COLORS.get(mt, "#4F46E5")
-                emoji = EMOJIS.get(mt, "")
-                ts    = f"{seg.get('start', 0):.0f}s"
+                raw_spk = seg.get("speaker", "?")
+                spk     = apply_speaker_mapping(raw_spk)
+                color   = speaker_color(raw_spk)
+                emoji   = EMOJIS.get(mt, "")
+                ts      = f"{seg.get('start', 0):.0f}s"
                 st.markdown(
                     f'<div style="border-left:4px solid {color};background:#1E1E2E;'
                     f'padding:8px 14px;margin:5px 0;border-radius:0 8px 8px 0">'
                     f'<small style="color:#9CA3AF">[{ts}]</small> '
-                    f'<strong style="color:#E5E7EB">{seg.get("speaker","?")}</strong><br>'
+                    f'<strong style="color:{color}">{spk}</strong><br>'
                     f'<span style="color:#F3F4F6">{emoji} {seg.get("text","")}</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+            st.markdown('<div id="transcript-bottom"></div>', unsafe_allow_html=True)
+        _components.html("""<script>
+        const a = window.parent.document.getElementById('transcript-bottom');
+        if (a) {
+            let el = a.parentElement;
+            while (el) {
+                const s = window.parent.getComputedStyle(el);
+                if (s.overflowY === 'auto' || s.overflowY === 'scroll') {
+                    el.scrollTop = el.scrollHeight; break;
+                }
+                el = el.parentElement;
+            }
+        }
+        </script>""", height=0)
     elif st.session_state["recording"]:
         st.info("⏳ En attente du premier segment…")
     else:
-        st.caption("Cliquez sur ▶️ Micro réel ou 🤖 Mock pour démarrer.")
+        st.caption("Cliquez sur ▶ Démarrer ou 🎭 Démo pour commencer.")
 
 with right:
-    st.subheader("📊 Stats")
+    st.subheader("📊 Statistiques")
     if spk_stats:
         for sp, d in spk_stats.items():
             pct  = d.get("percentage", 0)

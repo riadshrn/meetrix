@@ -87,8 +87,11 @@ for k, v in {
 # ── API ──────────────────────────────────────────────────────────────────────
 def api_generate():
     try:
+        mapping = st.session_state.get("speaker_mapping", {})
         with st.spinner("Analyse en cours par Mistral AI…"):
-            r = requests.post(f"{BACKEND}/report", timeout=120)
+            r = requests.post(f"{BACKEND}/report",
+                              json={"speaker_mapping": mapping} if mapping else None,
+                              timeout=120)
         if r.status_code == 404:
             st.warning("⚠️ Aucune réunion disponible. Allez sur la page **Transcription**, démarrez une réunion, attendez quelques segments, puis arrêtez-la avant de générer le compte rendu.")
             return None
@@ -103,7 +106,7 @@ def api_generate():
 
 def api_history():
     try:
-        r = requests.get(f"{BACKEND}/reports", timeout=5)
+        r = requests.get(f"{BACKEND}/reports", timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception:
@@ -112,7 +115,7 @@ def api_history():
 
 def api_delete(mid: str) -> bool:
     try:
-        requests.delete(f"{BACKEND}/reports/{mid}", timeout=5).raise_for_status()
+        requests.delete(f"{BACKEND}/reports/{mid}", timeout=15).raise_for_status()
         return True
     except Exception as e:
         st.error(f"Erreur suppression : {e}")
@@ -194,7 +197,7 @@ PRIO_FROM_FR = {"🔴 Haute": "high", "🟡 Moyenne": "medium", "🟢 Faible": "
 st.title("📋 Compte rendu")
 
 # ── Barre d'actions ──────────────────────────────────────────────────────────
-c1, c2, c3, c4 = st.columns([2.8, 1.2, 1.2, 1.2])
+c1, c2 = st.columns([2.8, 1.2])
 with c1:
     if st.button("Générer le compte rendu IA", type="primary", use_container_width=True):
         result = api_generate()
@@ -211,21 +214,6 @@ with c2:
     if st.button("Historique", use_container_width=True):
         st.session_state["cr_show_hist"] = not st.session_state["cr_show_hist"]
         st.rerun()
-
-with c3:
-    if st.session_state["cr_current"]:
-        label = "Sauvegarder" if st.session_state["cr_edit"] else "Éditer"
-        if st.button(label, use_container_width=True):
-            if st.session_state["cr_edit"]:
-                st.session_state["cr_current"] = dict(st.session_state["cr_edited"])
-            st.session_state["cr_edit"] = not st.session_state["cr_edit"]
-            st.rerun()
-
-with c4:
-    if st.session_state["cr_current"] and not st.session_state["cr_delete_confirm"]:
-        if st.button("🗑 Supprimer", use_container_width=True):
-            st.session_state["cr_delete_confirm"] = st.session_state["cr_current"].get("meeting_id")
-            st.rerun()
 
 # ── Confirmation suppression ─────────────────────────────────────────────────
 if st.session_state["cr_delete_confirm"]:
@@ -305,6 +293,21 @@ if not report:
     st.info("Arrêtez d'abord la réunion (page Transcription), puis cliquez sur **Générer le compte rendu IA**.")
     st.stop()
 
+# ── Actions sur le rapport affiché ───────────────────────────────────────────
+ra1, ra2 = st.columns([1, 1])
+with ra1:
+    label = "Sauvegarder" if st.session_state["cr_edit"] else "✏️ Éditer"
+    if st.button(label, use_container_width=True):
+        if st.session_state["cr_edit"]:
+            st.session_state["cr_current"] = dict(st.session_state["cr_edited"])
+        st.session_state["cr_edit"] = not st.session_state["cr_edit"]
+        st.rerun()
+with ra2:
+    if not st.session_state["cr_delete_confirm"]:
+        if st.button("🗑 Supprimer", use_container_width=True):
+            st.session_state["cr_delete_confirm"] = report.get("meeting_id")
+            st.rerun()
+
 # ── Données ──────────────────────────────────────────────────────────────────
 decisions    = report.get("decisions", [])
 action_items = list(report.get("action_items", []))
@@ -316,6 +319,9 @@ title        = report.get("title", "Réunion")
 meeting_id   = report.get("meeting_id", "")
 duration     = report.get("duration_minutes", 0)
 speakers     = api_speakers()
+# Inverser le mapping pour retrouver les stats par nom affiché
+_mapping     = st.session_state.get("speaker_mapping", {})
+_inv_mapping = {v: k for k, v in _mapping.items()}
 
 # ── HERO ─────────────────────────────────────────────────────────────────────
 st.markdown(f"""
@@ -339,7 +345,7 @@ if participants:
     with st.container(border=True):
         rows = ""
         for j, p in enumerate(participants):
-            pct = speakers.get(p, {}).get("percentage", 0)
+            pct = speakers.get(_inv_mapping.get(p, p), {}).get("percentage", 0)
             pct_str = f'<span style="font-size:0.8rem;color:#9ca3af;margin-left:8px">{round(pct)}% du temps de parole</span>' if pct > 0 else ""
             border = "" if j == len(participants) - 1 else "border-bottom:1px solid #f3f4f6"
             rows += (
@@ -504,7 +510,32 @@ with st.container(border=True):
     else:
         st.success("Aucun point ouvert — réunion bien conclue !", icon="✅")
 
+# ── EXPORT ────────────────────────────────────────────────────────────────────
+ec1, ec2, ec3 = st.columns(3)
+
+with ec1:
+    try:
+        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=20).content
+        st.download_button("Télécharger en Markdown", data=md_bytes,
+                           file_name=f"rapport_{meeting_id[:8]}.md", mime="text/markdown",
+                           use_container_width=True)
+    except Exception:
+        st.button("Télécharger en Markdown", disabled=True, use_container_width=True)
+
+with ec2:
+    try:
+        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=20).content
+        st.download_button("Télécharger en PDF", data=pdf_bytes,
+                           file_name=f"rapport_{meeting_id[:8]}.pdf", mime="application/pdf",
+                           use_container_width=True)
+    except Exception:
+        st.button("Télécharger en PDF", disabled=True, use_container_width=True)
+
+with ec3:
+    st.link_button("Envoyer par mail", url=mailto_link(report), use_container_width=True)
+
 # ── PLANIFIER LA PROCHAINE RÉUNION ────────────────────────────────────────────
+st.markdown("---")
 with st.container(border=True):
     st.markdown("**📅 Planifier la prochaine réunion**")
     with st.form("cal_form_inline"):
@@ -565,28 +596,3 @@ with st.container(border=True):
                 st.markdown(f"[🎥 Rejoindre via Google Meet]({meet_link})")
         if cal_res.get("event_id") == "stub-event-id":
             st.warning("⚠️ Mode stub — configurez `client_secret.json` pour créer de vrais événements.")
-
-# ── EXPORT ────────────────────────────────────────────────────────────────────
-st.markdown("---")
-ec1, ec2, ec3 = st.columns(3)
-
-with ec1:
-    try:
-        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=10).content
-        st.download_button("Télécharger en Markdown", data=md_bytes,
-                           file_name=f"rapport_{meeting_id[:8]}.md", mime="text/markdown",
-                           use_container_width=True)
-    except Exception:
-        st.button("Télécharger en Markdown", disabled=True, use_container_width=True)
-
-with ec2:
-    try:
-        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=15).content
-        st.download_button("Télécharger en PDF", data=pdf_bytes,
-                           file_name=f"rapport_{meeting_id[:8]}.pdf", mime="application/pdf",
-                           use_container_width=True)
-    except Exception:
-        st.button("Télécharger en PDF", disabled=True, use_container_width=True)
-
-with ec3:
-    st.link_button("Envoyer par mail", url=mailto_link(report), use_container_width=True)
