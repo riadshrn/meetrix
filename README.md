@@ -8,34 +8,45 @@ Application complète de support de réunion tournant **en local** sur votre mac
 
 ## 🏗️ Architecture
 
+Deux interfaces utilisateur **complètes et indépendantes** — chacune permet de piloter une session et d'en consulter les résultats. Elles partagent le même backend et la même base de données.
+
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     CHROME EXTENSION (MV3)                        │
-│  tabCapture → offscreen.js → WebSocket /ws/audio                  │
-└──────────────────────────┬───────────────────────────────────────┘
-                           │ PCM int16 16kHz mono (WebSocket)
-                           ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                       FASTAPI BACKEND                             │
-│  /start  /stop  /flush  /reset  /state  /report  /qa             │
-│  /calendar/create  /tasks/create                                  │
-│                                                                    │
-│  ┌────────────────┐  ┌──────────────────────────────────────┐    │
-│  │ MeetingManager │  │           ASR Service                │    │
-│  │ (orchestrateur)│  │  Groq Whisper large-v3-turbo (STT)   │    │
-│  │                │  │  ECAPA-TDNN speechbrain (diarisation)│    │
-│  └────────────────┘  └──────────────────────────────────────┘    │
-│  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────┐   │
-│  │   LLM Service  │  │  Stats Service  │  │  Export Service  │   │
-│  │  (Mistral API) │  │ (speaker/kw)    │  │   (MD + PDF)     │   │
-│  └────────────────┘  └─────────────────┘  └──────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
-                           │ HTTP REST
-                           ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                    STREAMLIT FRONTEND                              │
-│  Accueil · Transcription · Statistiques · Compte rendu · Q&A      │
-└──────────────────────────────────────────────────────────────────┘
+        Interface 1                              Interface 2
+┌───────────────────────────┐        ┌──────────────────────────────────────┐
+│   CHROME EXTENSION (MV3)  │        │         STREAMLIT FRONTEND            │
+│                           │        │                                       │
+│  • Capture audio via      │        │  • Capture audio via micro physique  │
+│    tabCapture (onglet      │        │    et/ou câble virtuel               │
+│    navigateur directement)│        │    (VB-Audio / BlackHole)            │
+│  • Panneau latéral :      │        │    → Google Meet aussi capturé       │
+│    contrôles + résultats  │        │      si Meet routé vers le câble     │
+│    (transcription, stats, │        │  • Pages :                            │
+│     compte rendu, Q&A)    │        │    Accueil · Transcription · Stats    │
+│                           │        │    Compte rendu · Q&A                 │
+└──────┬─────────┬──────────┘        └──────┬──────────────────┬────────────┘
+       │ audio   │ HTTP REST                 │ audio            │ HTTP REST
+       │ WS      │ (résultats)               │ WS               │ (résultats)
+       ▼         ▼                           ▼                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           FASTAPI BACKEND                                 │
+│  /start  /stop  /flush  /reset  /state  /report  /qa                     │
+│  /calendar/create  /tasks/create                                          │
+│                                                                           │
+│  ┌────────────────┐  ┌───────────────────────────────────────────┐       │
+│  │ MeetingManager │  │              ASR Service                   │       │
+│  │ (orchestrateur)│  │  Groq Whisper large-v3-turbo (STT)         │       │
+│  │                │  │  ECAPA-TDNN speechbrain (diarisation)      │       │
+│  └────────────────┘  └───────────────────────────────────────────┘       │
+│  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────┐           │
+│  │   LLM Service  │  │  Stats Service  │  │  Export Service  │           │
+│  │  (Mistral API) │  │ (speaker/kw)    │  │   (MD + PDF)     │           │
+│  └────────────────┘  └─────────────────┘  └──────────────────┘           │
+│                                                                           │
+│  ┌───────────────────────────────────────────────────────────────┐       │
+│  │                    Base de données SQLite                      │       │
+│  │  Historique de tous les comptes rendus (toutes interfaces)     │       │
+│  └───────────────────────────────────────────────────────────────┘       │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Pages

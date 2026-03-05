@@ -126,11 +126,13 @@ class EcapaDiarizer:
                 with torch.no_grad():
                     emb = self._model.encode_batch(wav).squeeze().numpy()
                 norm = np.linalg.norm(emb)
+                logger.info(f"[DIAR] ECAPA embed OK — shape={emb.shape} norm={norm:.4f}")
                 return emb / norm if norm > 1e-8 else None
             except Exception as e:
-                logger.debug(f"ECAPA embed erreur: {e}")
+                logger.warning(f"[DIAR] ECAPA embed ÉCHEC → fallback numpy. Erreur: {e}")
 
         # Fallback numpy spectral
+        logger.info("[DIAR] Utilisation fallback numpy spectral")
         if len(audio_np) < 400:
             return None
         N     = max(4096, len(audio_np))
