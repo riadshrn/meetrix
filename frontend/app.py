@@ -74,7 +74,7 @@ def page_accueil():
     with c2:
         st.markdown("""<div class="feat-card">
         <div class="feat-icon">📊</div>
-        <div class="feat-title">Stats & Graphiques</div>
+        <div class="feat-title">Statistiques & Graphiques</div>
         <div class="feat-desc">Temps de parole par participant, mots clés, moments clés</div>
     </div>""", unsafe_allow_html=True)
 
@@ -102,6 +102,5 @@ pg = st.navigation([
     st.Page("pages/2_stats.py",             title="Statistiques",               icon="📊"),
     st.Page("pages/3_Compte_rendu.py",      title="Compte rendu",               icon="🤖"),
     st.Page("pages/4_qa.py",               title="Q&A",                        icon="❓"),
-    st.Page("pages/5_calendar.py",          title="Planification de réunion",   icon="📅"),
 ])
 pg.run()

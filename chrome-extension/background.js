@@ -61,6 +61,39 @@ async function closeOffscreen() {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
+  if (msg.action === 'GET_FRESH_STREAM_ID') {
+    // Obtenir un streamId frais pour l'onglet Google Meet actif
+    chrome.tabs.query({ url: 'https://meet.google.com/*', active: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab) {
+        // Chercher un onglet Meet même s'il n'est pas en premier plan
+        chrome.tabs.query({ url: 'https://meet.google.com/*' }, (allTabs) => {
+          const meetTab = allTabs[0];
+          if (!meetTab) {
+            sendResponse({ error: 'Aucun onglet Google Meet trouvé.' });
+            return;
+          }
+          chrome.tabCapture.getMediaStreamId({ targetTabId: meetTab.id }, (streamId) => {
+            if (chrome.runtime.lastError || !streamId) {
+              sendResponse({ error: chrome.runtime.lastError?.message || 'Capture impossible' });
+            } else {
+              sendResponse({ streamId });
+            }
+          });
+        });
+        return;
+      }
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (streamId) => {
+        if (chrome.runtime.lastError || !streamId) {
+          sendResponse({ error: chrome.runtime.lastError?.message || 'Capture impossible' });
+        } else {
+          sendResponse({ streamId });
+        }
+      });
+    });
+    return true;
+  }
+
   if (msg.action === 'START_CAPTURE') {
     handleStartCapture(msg)
       .then(sendResponse)
@@ -73,6 +106,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then(sendResponse)
       .catch(e => sendResponse({ error: e.message }));
     return true;
+  }
+
+  if (msg.action === 'ACTIVE_SPEAKER') {
+    // Router le nom du locuteur actif vers l'offscreen
+    chrome.runtime.sendMessage({ action: 'SET_SPEAKER', name: msg.name }).catch(() => {});
+    return false;
   }
 
   return false;

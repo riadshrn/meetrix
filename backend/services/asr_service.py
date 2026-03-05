@@ -171,6 +171,19 @@ class EcapaDiarizer:
             return "Intervenant 1"
 
 
+# ── Filtre hallucinations Whisper ────────────────────────────────────────────
+_HALLUCINATION_PATTERNS = [
+    "amara.org", "sous-titres réalisés", "sous-titrage", "transcrit par",
+    "merci d'avoir regardé", "merci d'avoir visionné", "sous-titres par",
+    "traduit par", "abonnez-vous", "n'oubliez pas de liker",
+    "musique", "♪", "[musique]", "[music]", "(musique)", "(music)",
+]
+
+def _is_hallucination(text: str) -> bool:
+    lower = text.lower().strip()
+    return any(p in lower for p in _HALLUCINATION_PATTERNS)
+
+
 # ── Stub ASR ──────────────────────────────────────────────────────────────────
 class StubASR:
     async def transcribe_chunk(self, audio_bytes: bytes, start_time: float) -> List[TranscriptSegment]:
@@ -202,18 +215,27 @@ class WhisperASR:
                 language="fr",
                 beam_size=5,
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=250),
+                vad_parameters=dict(min_silence_duration_ms=300, speech_pad_ms=100),
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                compression_ratio_threshold=2.0,
+                log_prob_threshold=-1.0,
             )
             result = []
             for seg in segs:
-                if not seg.text.strip():
+                text = seg.text.strip()
+                if not text:
+                    continue
+                # Filtre les hallucinations connues de Whisper
+                if _is_hallucination(text):
+                    logger.debug(f"[ASR] Hallucination filtrée : {text[:60]}")
                     continue
                 result.append(TranscriptSegment(
                     id=str(uuid.uuid4()),
                     start=start_time + seg.start,
                     end=start_time + seg.end,
                     speaker="__DIARIZE__",
-                    text=seg.text.strip(),
+                    text=text,
                     confidence=max(0.0, 1.0 + seg.avg_logprob),
                     is_partial=False,
                 ))
@@ -236,6 +258,7 @@ class StreamingASRService:
         self._last_partial_time: float    = 0.0
         self._silence_chunks:    int      = 0
         self._running:           bool     = False
+        self._speaker_override:  Optional[str] = None
 
         self.on_partial: Optional[Callable] = None
         self.on_segment: Optional[Callable] = None
@@ -248,12 +271,16 @@ class StreamingASRService:
         self._last_partial_time = time.time()
         self._silence_chunks    = 0
         self._running           = True
+        self._speaker_override  = None
         self._diarizer.reset()
         logger.info("StreamingASRService démarré")
 
     def stop(self):
         self._running = False
         logger.info("StreamingASRService arrêté")
+
+    def set_speaker_override(self, name: Optional[str]):
+        self._speaker_override = name
 
     async def receive_chunk(self, audio_bytes: bytes):
         if not self._running:
@@ -309,9 +336,12 @@ class StreamingASRService:
 
         for seg in segments:
             if seg.speaker == "__DIARIZE__":
-                seg.speaker = self._diarizer.identify(
-                    audio_data, seg.start, seg.end, start_time
-                )
+                if self._speaker_override:
+                    seg.speaker = self._speaker_override
+                else:
+                    seg.speaker = self._diarizer.identify(
+                        audio_data, seg.start, seg.end, start_time
+                    )
             logger.info(f"[ASR] [{seg.speaker}] '{seg.text[:60]}'")
             if self.on_segment and seg.text.strip():
                 await self.on_segment(seg)

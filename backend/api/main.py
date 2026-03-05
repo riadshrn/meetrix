@@ -16,6 +16,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from backend.models.meeting import (
     CalendarEventRequest, CreateTaskRequest, MeetingReport, MomentType,
@@ -24,7 +25,8 @@ from backend.models.meeting import (
 )
 from backend.services.asr_service import get_asr_service
 from backend.services.calendar_service import get_calendar_service, get_tasks_service
-from backend.services.export_service import export_report
+from backend.services.db_service import delete_report as db_delete, get_report as db_get, init_db, list_reports as db_list, save_report as db_save
+from backend.services.export_service import generate_markdown, generate_pdf
 from backend.services.llm_service import get_llm_service
 from backend.services.meeting_manager import get_meeting_manager
 from backend.services.stats_service import get_stats_service
@@ -86,6 +88,7 @@ def _inject_demo_segments():
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     logger.info("🚀 Meeting AI Assistant démarré")
     yield
     await get_llm_service().close()
@@ -94,31 +97,6 @@ app = FastAPI(title="Meeting AI Assistant", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _last_report: Optional[MeetingReport] = None
-_reports_history: List[MeetingReport] = []
-
-HISTORY_FILE = Path("exports/reports_history.json")
-
-def _load_history():
-    global _reports_history
-    if HISTORY_FILE.exists():
-        try:
-            data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-            _reports_history = [MeetingReport(**r) for r in data]
-            logger.info(f"Historique chargé: {len(_reports_history)} compte(s)-rendu(s)")
-        except Exception as e:
-            logger.warning(f"Impossible de charger l'historique: {e}")
-
-def _save_history():
-    try:
-        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        HISTORY_FILE.write_text(
-            json.dumps([r.model_dump(mode="json") for r in _reports_history], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    except Exception as e:
-        logger.warning(f"Impossible de sauvegarder l'historique: {e}")
-
-_load_history()
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -174,7 +152,7 @@ def get_state():
 
 @app.post("/report")
 async def generate_report():
-    global _last_report, _reports_history
+    global _last_report
     manager = get_meeting_manager()
     if not manager.state:
         raise HTTPException(404, "Aucune réunion disponible.")
@@ -182,10 +160,8 @@ async def generate_report():
     llm = get_llm_service()
     report = await llm.generate_full_report(manager.state)
     _last_report = report
-    _reports_history.append(report)
-    _save_history()
-    paths = export_report(report)
-    return {"report": report.model_dump(), "exports": paths}
+    db_save(report)
+    return {"report": report.model_dump()}
 
 
 @app.post("/qa", response_model=QAResponse)
@@ -217,20 +193,40 @@ def get_last_report():
 
 @app.get("/reports")
 def list_reports():
-    return [r.model_dump() for r in reversed(_reports_history)]
+    return [r.model_dump() for r in db_list()]
 
 
 @app.delete("/reports/{meeting_id}")
 def delete_report(meeting_id: str):
-    global _reports_history, _last_report
-    original_len = len(_reports_history)
-    _reports_history = [r for r in _reports_history if r.meeting_id != meeting_id]
-    if len(_reports_history) == original_len:
+    global _last_report
+    if not db_delete(meeting_id):
         raise HTTPException(404, "Compte-rendu introuvable.")
     if _last_report and _last_report.meeting_id == meeting_id:
-        _last_report = _reports_history[-1] if _reports_history else None
-    _save_history()
+        remaining = db_list()
+        _last_report = remaining[0] if remaining else None
     return {"deleted": meeting_id}
+
+
+@app.get("/reports/{meeting_id}/markdown")
+def export_markdown(meeting_id: str):
+    report = db_get(meeting_id)
+    if not report:
+        raise HTTPException(404, "Compte-rendu introuvable.")
+    md = generate_markdown(report)
+    return Response(content=md, media_type="text/markdown",
+                    headers={"Content-Disposition": f"attachment; filename=rapport_{meeting_id[:8]}.md"})
+
+
+@app.get("/reports/{meeting_id}/pdf")
+def export_pdf(meeting_id: str):
+    report = db_get(meeting_id)
+    if not report:
+        raise HTTPException(404, "Compte-rendu introuvable.")
+    pdf_path = generate_pdf(report)
+    if not pdf_path:
+        raise HTTPException(503, "reportlab non disponible.")
+    return Response(content=pdf_path.read_bytes(), media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=rapport_{meeting_id[:8]}.pdf"})
 
 
 @app.post("/tasks/create")
@@ -248,11 +244,13 @@ def create_google_task(req: CreateTaskRequest):
 
 @app.post("/calendar")
 def create_calendar_event(req: CalendarEventRequest):
-    if not _last_report:
+    report = _last_report or db_get(req.meeting_id)
+    if not report:
         raise HTTPException(404, "Aucun rapport. Appelez /report d'abord.")
     try:
-        return get_calendar_service().create_meeting_event(req, _last_report)
+        return get_calendar_service().create_meeting_event(req, report)
     except Exception as e:
+        logger.error(f"Erreur Calendar : {e}", exc_info=True)
         raise HTTPException(500, str(e))
 
 
@@ -293,6 +291,14 @@ async def websocket_audio(ws: WebSocket):
             if "bytes" in msg and msg["bytes"]:
                 logger.debug(f"Chunk reçu: {len(msg['bytes'])} bytes, recording={manager.is_recording()}")
                 await asr.receive_chunk(msg["bytes"])
+            elif "text" in msg and msg["text"]:
+                try:
+                    data = json.loads(msg["text"])
+                    if data.get("type") == "speaker":
+                        asr.set_speaker_override(data.get("name"))
+                        logger.info(f"[EXT] Locuteur actif : {data.get('name')}")
+                except Exception:
+                    pass
     except (WebSocketDisconnect, RuntimeError):
         logger.info("WebSocket audio déconnecté — ASR maintenu actif")
         # Ne pas arrêter l'ASR : le frontend va se reconnecter

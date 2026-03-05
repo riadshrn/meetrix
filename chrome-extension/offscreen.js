@@ -10,6 +10,7 @@ let wsConnection    = null;
 let reconnectTimer  = null;
 let currentBackend  = null;
 let capturing       = false;
+let currentSpeaker  = null;
 
 // ── Écoute des messages ───────────────────────────────────────────────────────
 
@@ -19,6 +20,12 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg.action === 'STOP_STREAM') {
     stopCapture();
+  }
+  if (msg.action === 'SET_SPEAKER' && msg.name !== currentSpeaker) {
+    currentSpeaker = msg.name;
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({ type: 'speaker', name: msg.name }));
+    }
   }
 });
 

@@ -181,17 +181,16 @@ async function startRecording() {
       throw new Error(`Backend inaccessible (${backendUrl}) — Lancez start.bat d'abord.`);
     }
 
-    // 2. Récupérer le streamId obtenu lors du clic sur l'icône extension
-    const stored = await chrome.storage.session.get(['pendingStreamId', 'capturedAt', 'streamIdStatus', 'streamIdError']);
-
-    if (stored.streamIdStatus === 'error') {
-      throw new Error(`Capture audio impossible : ${stored.streamIdError || 'permission refusée'}. Rechargez la page Meet et recliquez sur l'icône Meetrix.`);
+    // 2. Obtenir un streamId frais maintenant (évite l'expiration après quelques secondes)
+    const freshResp = await chrome.runtime.sendMessage({ action: 'GET_FRESH_STREAM_ID' });
+    if (freshResp?.error) {
+      throw new Error(`Capture audio impossible : ${freshResp.error}. Assurez-vous d'être sur un onglet Google Meet.`);
     }
-    if (!stored.pendingStreamId) {
-      throw new Error('⚠️ Fermez ce panel, allez sur l\'onglet Google Meet, puis recliquez sur l\'icône Meetrix pour activer la capture audio.');
+    if (!freshResp?.streamId) {
+      throw new Error('⚠️ Aucun onglet Google Meet détecté. Ouvrez Meet et réessayez.');
     }
 
-    const streamId = stored.pendingStreamId;
+    const streamId = freshResp.streamId;
 
     // 3. Démarrer la réunion sur le backend
     const r = await fetch(`${backendUrl}/start`, {

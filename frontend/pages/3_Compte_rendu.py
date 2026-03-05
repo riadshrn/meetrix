@@ -2,7 +2,7 @@ import os
 import re as _re
 import urllib.parse
 import uuid as _uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -64,20 +64,21 @@ div[data-testid="stButton"] button[kind="secondary"].gtask {
 .del-box {
   background: #fef2f2; border: 1px solid #fca5a5;
   border-radius: 10px; padding: 14px 18px; margin: 8px 0;
+  color: #7f1d1d;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Session state ────────────────────────────────────────────────────────────
 for k, v in {
-    "cr_current":       None,
-    "cr_exports":       None,
-    "cr_edit":          False,
-    "cr_edited":        None,
-    "cr_tasks_sent":    {},
-    "cr_show_hist":     False,
+    "cr_current":        None,
+    "cr_edit":           False,
+    "cr_edited":         None,
+    "cr_tasks_sent":     {},
+    "cr_show_hist":      False,
     "cr_delete_confirm": None,
-    "cr_hist_search":   "",
+    "cr_hist_search":    "",
+    "cal_result":        None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -92,7 +93,7 @@ def api_generate():
             st.warning("⚠️ Aucune réunion disponible. Allez sur la page **Transcription**, démarrez une réunion, attendez quelques segments, puis arrêtez-la avant de générer le compte rendu.")
             return None
         r.raise_for_status()
-        return r.json()
+        return r.json().get("report")
     except requests.exceptions.Timeout:
         st.error("Délai dépassé — réessayez.")
     except Exception as e:
@@ -199,9 +200,8 @@ with c1:
         result = api_generate()
         if result:
             st.session_state.update({
-                "cr_current":    result.get("report"),
-                "cr_exports":    result.get("exports"),
-                "cr_edited":     dict(result.get("report", {})),
+                "cr_current":    result,
+                "cr_edited":     dict(result),
                 "cr_edit":       False,
                 "cr_tasks_sent": {},
             })
@@ -313,6 +313,7 @@ participants = report.get("participants", [])
 discussed    = report.get("discussed_points", [])
 context_text = report.get("context", "")
 title        = report.get("title", "Réunion")
+meeting_id   = report.get("meeting_id", "")
 duration     = report.get("duration_minutes", 0)
 speakers     = api_speakers()
 
@@ -503,29 +504,88 @@ with st.container(border=True):
     else:
         st.success("Aucun point ouvert — réunion bien conclue !", icon="✅")
 
+# ── PLANIFIER LA PROCHAINE RÉUNION ────────────────────────────────────────────
+with st.container(border=True):
+    st.markdown("**📅 Planifier la prochaine réunion**")
+    with st.form("cal_form_inline"):
+        cf1, cf2 = st.columns(2)
+        with cf1:
+            cal_title    = st.text_input("Titre", value=f"Suite — {title}")
+            _default_dt  = (datetime.now() + timedelta(days=7)).replace(hour=14, minute=0, second=0, microsecond=0)
+            cal_date     = st.date_input("Date", value=_default_dt.date())
+            cal_time     = st.time_input("Heure", value=_default_dt.time())
+            cal_duration = st.number_input("Durée (min)", min_value=15, max_value=480, value=60, step=15)
+        with cf2:
+            cal_tz = st.selectbox("Fuseau horaire",
+                ["Europe/Paris", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Tokyo"])
+            cal_attendees_raw = st.text_area("Participants (un email par ligne)",
+                placeholder="alice@company.com\nbob@company.com", height=120)
+        cal_submitted = st.form_submit_button("📅 Créer l'événement", type="primary", use_container_width=True)
+
+    if cal_submitted:
+        cal_dt       = datetime.combine(cal_date, cal_time)
+        cal_attendees = [e.strip() for e in cal_attendees_raw.strip().split("\n") if e.strip() and "@" in e]
+        cal_payload  = {
+            "meeting_id":           meeting_id or "unknown",
+            "next_meeting_title":   cal_title,
+            "next_meeting_datetime": cal_dt.isoformat(),
+            "duration_minutes":     int(cal_duration),
+            "attendees":            cal_attendees,
+            "timezone":             cal_tz,
+        }
+        try:
+            with st.spinner("Création de l'événement…"):
+                cal_r = requests.post(f"{BACKEND}/calendar", json=cal_payload, timeout=30)
+            if cal_r.status_code == 404:
+                st.error("Générez d'abord un compte rendu.")
+            else:
+                cal_r.raise_for_status()
+                st.session_state["cal_result"] = cal_r.json()
+                st.rerun()
+        except requests.exceptions.HTTPError as e:
+            try:
+                detail = e.response.json().get("detail", str(e))
+            except Exception:
+                detail = str(e)
+            st.error(f"Erreur {e.response.status_code} : {detail}")
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+
+    if st.session_state.get("cal_result"):
+        cal_res = st.session_state["cal_result"]
+        st.success("✅ Événement créé !")
+        lc1, lc2 = st.columns(2)
+        with lc1:
+            html_link = cal_res.get("html_link", "")
+            if html_link:
+                st.markdown(f"[📅 Voir dans Google Calendar]({html_link})")
+        with lc2:
+            meet_link = cal_res.get("meet_link", "")
+            if meet_link:
+                st.markdown(f"[🎥 Rejoindre via Google Meet]({meet_link})")
+        if cal_res.get("event_id") == "stub-event-id":
+            st.warning("⚠️ Mode stub — configurez `client_secret.json` pour créer de vrais événements.")
+
 # ── EXPORT ────────────────────────────────────────────────────────────────────
 st.markdown("---")
-exports = st.session_state.get("cr_exports") or {}
 ec1, ec2, ec3 = st.columns(3)
 
 with ec1:
-    md_path = exports.get("markdown")
-    if md_path and Path(md_path).exists():
-        st.download_button("Télécharger en Markdown",
-                           data=Path(md_path).read_text(encoding="utf-8"),
-                           file_name=Path(md_path).name, mime="text/markdown",
+    try:
+        md_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/markdown", timeout=10).content
+        st.download_button("Télécharger en Markdown", data=md_bytes,
+                           file_name=f"rapport_{meeting_id[:8]}.md", mime="text/markdown",
                            use_container_width=True)
-    else:
+    except Exception:
         st.button("Télécharger en Markdown", disabled=True, use_container_width=True)
 
 with ec2:
-    pdf_path = exports.get("pdf")
-    if pdf_path and Path(pdf_path).exists():
-        st.download_button("Télécharger en PDF",
-                           data=Path(pdf_path).read_bytes(),
-                           file_name=Path(pdf_path).name, mime="application/pdf",
+    try:
+        pdf_bytes = requests.get(f"{BACKEND}/reports/{meeting_id}/pdf", timeout=15).content
+        st.download_button("Télécharger en PDF", data=pdf_bytes,
+                           file_name=f"rapport_{meeting_id[:8]}.pdf", mime="application/pdf",
                            use_container_width=True)
-    else:
+    except Exception:
         st.button("Télécharger en PDF", disabled=True, use_container_width=True)
 
 with ec3:

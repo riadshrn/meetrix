@@ -251,12 +251,15 @@ with c2:
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "real", "error": None})
+                _inject_stop.set()   # stoppe tout thread inject parasite
                 _audio_stop.clear()
-                threading.Thread(
+                t = threading.Thread(
                     target=_audio_loop,
                     args=(st.session_state["mic_device"], cable_idx),
                     daemon=True,
-                ).start()
+                )
+                t.start()
+                st.session_state["audio_thread"] = t
                 st.rerun()
 
 with c3:
@@ -275,12 +278,18 @@ with c4:
             _inject_stop.set()
             _audio_stop.set()
             with st.spinner("Finalisation de la transcription..."):
-                time.sleep(1.5)  # laisser le dernier chunk arriver
+                # Attendre que le thread audio ait vraiment fini d'envoyer
+                t = st.session_state.get("audio_thread")
+                if t and t.is_alive():
+                    t.join(timeout=3.0)
+                # Donner au backend le temps de recevoir le dernier chunk WebSocket
+                time.sleep(0.3)
                 try:
-                    requests.post(f"{BACKEND}/flush", timeout=10)
+                    requests.post(f"{BACKEND}/flush", timeout=15)
                 except Exception:
                     pass
             api_stop()
+            st.session_state["audio_thread"] = None
             st.session_state["recording"] = False
             st.rerun()
 
