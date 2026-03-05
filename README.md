@@ -266,13 +266,14 @@ Source Meet     ─┘   (sounddevice streams, ou extension Chrome)
 |---------|---------|------|
 | `fastapi` | 0.115.5 | Backend HTTP + WebSocket |
 | `uvicorn` | 0.32.1 | Serveur ASGI |
-| `groq` | latest | Transcription Whisper via Groq Cloud |
+| `httpx` | 0.27.2 | Appels API Groq (ASR) et Mistral (LLM) |
+| `groq` | latest | SDK Groq — Whisper large-v3-turbo |
 | `faster-whisper` | 1.0.3 | Fallback ASR local (si pas de clé Groq) |
 | `speechbrain` | 0.5.16 | Modèle ECAPA-TDNN pour diarisation |
 | `torch` | 2.2.2 | Inférence ECAPA-TDNN |
 | `torchaudio` | 2.2.2 | Traitement audio PyTorch |
+| `sounddevice` | 0.5.1 | Capture micro + CABLE virtuel |
 | `streamlit` | 1.40.0 | Interface web |
-| `mistralai` | latest | LLM pour comptes rendus |
 | `reportlab` | 4.2.5 | Export PDF |
 
 ---
