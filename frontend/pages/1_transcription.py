@@ -372,7 +372,7 @@ with left:
         st.caption("Cliquez sur ▶️ Lancer l'enregistrement ou 🎭 Démo pour démarrer.")
 
 with right:
-    st.subheader("📊 Stats")
+    st.subheader("📊 Statistiques")
     if spk_stats:
         for sp, d in spk_stats.items():
             pct  = d.get("percentage", 0)
