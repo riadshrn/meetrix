@@ -34,12 +34,18 @@ _audio_stop  = threading.Event()
 
 
 # ── Détection automatique du CABLE Output ───────────────────────────────────
+_VIRTUAL_CABLE_KEYWORDS = (
+    "cable output",   # VB-Audio CABLE (Windows)
+    "vb-audio",       # VB-Audio autres produits (Windows)
+    "blackhole",      # BlackHole (macOS)
+)
+
 def find_cable_device():
     try:
         import sounddevice as sd
         for i, d in enumerate(sd.query_devices()):
             name = d["name"].lower()
-            if d["max_input_channels"] > 0 and ("cable output" in name or "vb-audio" in name):
+            if d["max_input_channels"] > 0 and any(kw in name for kw in _VIRTUAL_CABLE_KEYWORDS):
                 return i, d["name"]
     except Exception:
         pass
@@ -200,8 +206,8 @@ with st.sidebar:
             name_low  = name.lower()
             is_input  = d["max_input_channels"] > 0
             is_output = any(kw in name_low for kw in OUTPUT_KEYWORDS)
-            is_cable  = "cable output" in name_low or "vb-audio" in name_low
-            # Garde les vrais micros, exclut les haut-parleurs ET le Cable Output (auto-détecté séparément)
+            is_cable  = any(kw in name_low for kw in _VIRTUAL_CABLE_KEYWORDS)
+            # Garde les vrais micros, exclut les haut-parleurs ET le cable virtuel (auto-détecté séparément)
             if is_input and not is_output and not is_cable and name not in seen_names:
                 seen_names[name] = i
         dev_labels = [f"{idx}: {name}" for name, idx in seen_names.items()]
@@ -222,7 +228,7 @@ with st.sidebar:
         if cable_idx is not None:
             st.success(f"✅ Source Meet : {cable_name}")
         else:
-            st.error("❌ CABLE Output (VB-Audio) non détecté.")
+            st.error("❌ Source Meet non détectée (BlackHole sur macOS, VB-Audio CABLE sur Windows).")
 
     except Exception:
         st.warning("sounddevice non disponible")
