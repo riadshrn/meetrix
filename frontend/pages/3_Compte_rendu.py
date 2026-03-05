@@ -194,7 +194,7 @@ PRIO_FROM_FR = {"🔴 Haute": "high", "🟡 Moyenne": "medium", "🟢 Faible": "
 st.title("📋 Compte rendu")
 
 # ── Barre d'actions ──────────────────────────────────────────────────────────
-c1, c2, c3, c4 = st.columns([2.8, 1.2, 1.2, 1.2])
+c1, c2 = st.columns([2.8, 1.2])
 with c1:
     if st.button("Générer le compte rendu IA", type="primary", use_container_width=True):
         result = api_generate()
@@ -211,21 +211,6 @@ with c2:
     if st.button("Historique", use_container_width=True):
         st.session_state["cr_show_hist"] = not st.session_state["cr_show_hist"]
         st.rerun()
-
-with c3:
-    if st.session_state["cr_current"]:
-        label = "Sauvegarder" if st.session_state["cr_edit"] else "Éditer"
-        if st.button(label, use_container_width=True):
-            if st.session_state["cr_edit"]:
-                st.session_state["cr_current"] = dict(st.session_state["cr_edited"])
-            st.session_state["cr_edit"] = not st.session_state["cr_edit"]
-            st.rerun()
-
-with c4:
-    if st.session_state["cr_current"] and not st.session_state["cr_delete_confirm"]:
-        if st.button("🗑 Supprimer", use_container_width=True):
-            st.session_state["cr_delete_confirm"] = st.session_state["cr_current"].get("meeting_id")
-            st.rerun()
 
 # ── Confirmation suppression ─────────────────────────────────────────────────
 if st.session_state["cr_delete_confirm"]:
@@ -304,6 +289,21 @@ edit_mode = st.session_state.get("cr_edit", False)
 if not report:
     st.info("Arrêtez d'abord la réunion (page Transcription), puis cliquez sur **Générer le compte rendu IA**.")
     st.stop()
+
+# ── Actions sur le rapport affiché ───────────────────────────────────────────
+ra1, ra2 = st.columns([1, 1])
+with ra1:
+    label = "Sauvegarder" if st.session_state["cr_edit"] else "✏️ Éditer"
+    if st.button(label, use_container_width=True):
+        if st.session_state["cr_edit"]:
+            st.session_state["cr_current"] = dict(st.session_state["cr_edited"])
+        st.session_state["cr_edit"] = not st.session_state["cr_edit"]
+        st.rerun()
+with ra2:
+    if not st.session_state["cr_delete_confirm"]:
+        if st.button("🗑 Supprimer", use_container_width=True):
+            st.session_state["cr_delete_confirm"] = report.get("meeting_id")
+            st.rerun()
 
 # ── Données ──────────────────────────────────────────────────────────────────
 decisions    = report.get("decisions", [])

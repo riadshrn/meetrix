@@ -168,7 +168,7 @@ def api_reset():
 
 def get_state():
     try:
-        r = requests.get(f"{BACKEND}/state", timeout=5)
+        r = requests.get(f"{BACKEND}/state", timeout=15)
         r.raise_for_status()
         return r.json().get("state") or {}
     except Exception as e:
@@ -267,13 +267,13 @@ c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
 
 with c1:
     label = "🔴 **ENREGISTREMENT EN COURS**" if st.session_state["recording"] else "⚫ **EN ATTENTE**"
-    badge = "🎙️ Micro réel" if st.session_state["mode"] == "real" else "🤖 Mode Démo"
+    badge = "🎙️ Lancer l'enregistrement" if st.session_state["mode"] == "real" else "🤖 Mode Démo"
     st.markdown(f"{label} — {badge}")
 
 with c2:
     if not st.session_state["recording"]:
         ready = st.session_state["mic_validated"] and cable_idx is not None
-        if st.button("▶️ Micro réel", type="primary", use_container_width=True, disabled=not ready):
+        if st.button("▶️ Lancer l'enregistrement", type="primary", use_container_width=True, disabled=not ready):
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "real", "error": None})
@@ -369,7 +369,7 @@ with left:
     elif st.session_state["recording"]:
         st.info("⏳ En attente du premier segment…")
     else:
-        st.caption("Cliquez sur ▶️ Micro réel ou 🎭 Démo pour démarrer.")
+        st.caption("Cliquez sur ▶️ Lancer l'enregistrement ou 🎭 Démo pour démarrer.")
 
 with right:
     st.subheader("📊 Stats")
