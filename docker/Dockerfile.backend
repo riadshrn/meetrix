@@ -20,7 +20,13 @@ RUN pip install --no-cache-dir \
     numpy==1.26.4 \
     websocket-client==1.8.0 \
     reportlab==4.2.5 \
-    python-dotenv==1.0.1
+    python-dotenv==1.0.1 \
+    google-api-python-client==2.151.0 \
+    google-auth-httplib2==0.2.0 \
+    google-auth-oauthlib==1.2.1
+
+# Pré-télécharger le modèle Whisper au build (évite le téléchargement au runtime)
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')"
 
 # Copie code source (contexte = racine du projet)
 COPY backend/ ./backend/

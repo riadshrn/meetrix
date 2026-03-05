@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Meetrix",
+  "version": "1.0.0",
+  "description": "Assistant IA pour Google Meet — Transcription live, Émotions, Compte rendu",
+
+  "permissions": [
+    "tabCapture",
+    "sidePanel",
+    "storage",
+    "offscreen",
+    "activeTab",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "http://localhost:8000/*",
+    "https://cdn.jsdelivr.net/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+
+  "action": {
+    "default_title": "Ouvrir Meetrix"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["libs/face-api.min.js"],
+      "matches": ["https://meet.google.com/*"]
+    }
+  ]
+}
