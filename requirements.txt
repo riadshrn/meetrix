@@ -19,6 +19,7 @@ numpy==1.26.4
 speechbrain==0.5.16
 torch==2.2.2
 torchaudio==2.2.2
+soundfile
 
 # --- Audio capture (optionnel, pour capture micro directe) ---
 sounddevice==0.5.1

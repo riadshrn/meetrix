@@ -29,9 +29,14 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── Stop events ──────────────────────────────────────────────────────────────
-_inject_stop = threading.Event()
-_audio_stop  = threading.Event()
+# ── Stop events (persistés dans session_state pour survivre aux reruns) ───────
+if "audio_stop_event" not in st.session_state:
+    st.session_state["audio_stop_event"] = threading.Event()
+if "inject_stop_event" not in st.session_state:
+    st.session_state["inject_stop_event"] = threading.Event()
+
+_audio_stop  = st.session_state["audio_stop_event"]
+_inject_stop = st.session_state["inject_stop_event"]
 
 
 # ── Détection automatique du CABLE Output ───────────────────────────────────
@@ -273,9 +278,14 @@ with c1:
     badge = "🎙️ Micro" if st.session_state["mode"] == "real" else "🎭 Démo"
     st.markdown(f"{label} — {badge}")
 
+# Bloquer démarrage si session précédente non resetée
+_has_previous_session = bool(segments) and not st.session_state["recording"]
+if _has_previous_session:
+    st.warning("⚠️ Une session précédente est en mémoire. Faites **Reset** avant de démarrer une nouvelle réunion.")
+
 with c2:
     if not st.session_state["recording"]:
-        ready = st.session_state["mic_validated"] and cable_idx is not None
+        ready = st.session_state["mic_validated"] and cable_idx is not None and not _has_previous_session
         if st.button("▶ Démarrer", type="primary", use_container_width=True, disabled=not ready):
             r = api_start(st.session_state["title"])
             if r:
@@ -293,12 +303,14 @@ with c2:
 
 with c3:
     if not st.session_state["recording"]:
-        if st.button("🎭 Démo", type="secondary", use_container_width=True):
+        if st.button("🎭 Démo", type="secondary", use_container_width=True, disabled=_has_previous_session):
             r = api_start(st.session_state["title"])
             if r:
                 st.session_state.update({"recording": True, "mode": "mock", "error": None})
                 _inject_stop.clear()
-                threading.Thread(target=_inject_loop, daemon=True).start()
+                inject_t = threading.Thread(target=_inject_loop, daemon=True)
+                inject_t.start()
+                st.session_state["inject_thread"] = inject_t
                 st.rerun()
 
 with c4:
@@ -329,6 +341,10 @@ with c5:
             st.session_state.update({
                 "recording": False, "meeting_id": None,
                 "error": None, "mic_validated": False,
+                # Réinitialiser aussi le compte rendu et les stats
+                "cr_current": None, "cr_edited": None,
+                "cr_edit": False, "cal_result": None,
+                "cr_tasks_sent": {}, "cr_show_hist": False,
             })
             st.rerun()
 
@@ -406,5 +422,13 @@ with right:
 
 # ── Auto-refresh 2s ───────────────────────────────────────────────────────────
 if st.session_state["recording"]:
+    # Auto-stop quand la démo est terminée (inject_loop a exité naturellement)
+    if st.session_state["mode"] == "mock":
+        inject_t = st.session_state.get("inject_thread")
+        if inject_t and not inject_t.is_alive():
+            _inject_stop.set()
+            api_stop()
+            st.session_state.update({"recording": False, "inject_thread": None})
+            st.rerun()
     time.sleep(2)
     st.rerun()

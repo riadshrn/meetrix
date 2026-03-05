@@ -50,7 +50,7 @@ SILENCE_RMS        = 0.004  # seuil RMS en dessous duquel = silence
 SILENCE_CHUNKS_MIN = 2      # chunks silence consécutifs → flush anticipé (~1s)
 MIN_BUFFER_SILENCE = SAMPLE_RATE * 2 * 0.6  # buffer minimum avant flush silence
 
-SPEAKER_SIMILARITY = 0.75   # seuil cosine similarity ECAPA-TDNN
+SPEAKER_SIMILARITY = 0.20   # seuil fallback numpy (ECAPA non fonctionnel sans soundfile)
 MAX_SPEAKERS       = 20
 
 # ── Diariseur ECAPA-TDNN (speechbrain) ───────────────────────────────────────
