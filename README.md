@@ -325,7 +325,9 @@ Source Meet     ─┘   (sounddevice streams, ou extension Chrome)
 
 > Prérequis : **Docker Desktop** installé et démarré — https://www.docker.com/products/docker-desktop/
 
-C'est la méthode recommandée pour lancer l'application sans installer Python ni les dépendances manuellement.
+> 💡 **Recommandation** : Docker permet de lancer l'application sans installer Python ni les dépendances, mais **la capture audio (micro virtuel VB-Audio/BlackHole) ne fonctionne pas dans les conteneurs**. Pour une utilisation complète avec audio, privilégiez le **lancement en local** (voir section [Lancement en local](#-lancement-en-local)).
+
+L'installation Docker est pratique pour tester l'interface et le compte rendu sans configuration Python.
 
 ### Lancement rapide
 
